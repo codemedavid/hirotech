@@ -12,6 +12,7 @@ import {
   FileText,
   Tag,
   Settings,
+  Users2,
 } from 'lucide-react';
 
 const navigation = [
@@ -21,6 +22,7 @@ const navigation = [
   { name: 'Pipelines', href: '/pipelines', icon: GitBranch },
   { name: 'Templates', href: '/templates', icon: FileText },
   { name: 'Tags', href: '/tags', icon: Tag },
+  { name: 'Team', href: '/team', icon: Users2 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
