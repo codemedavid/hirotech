@@ -169,7 +169,7 @@ export class FacebookClient {
         {
           params: {
             access_token: this.accessToken,
-            fields: 'participants,updated_time,message_count,messages{from,message}',
+            fields: 'id,participants,updated_time,message_count',
             limit,
           },
         }
@@ -222,6 +222,46 @@ export class FacebookClient {
   }
 
   /**
+   * Fetch ALL messages for a specific conversation with pagination
+   * This ensures we get the complete conversation history for accurate AI analysis
+   */
+  async getAllMessagesForConversation(conversationId: string): Promise<any[]> {
+    const allMessages: any[] = [];
+    let nextUrl: string | null = `${FB_GRAPH_URL}/${conversationId}/messages`;
+    let hasMore = true;
+
+    try {
+      while (hasMore && nextUrl) {
+        const response: any = await axios.get(nextUrl, {
+          params: {
+            access_token: this.accessToken,
+            fields: 'from,message,created_time',
+            limit: 100 // 100 messages per page
+          }
+        });
+
+        if (response.data.data?.length > 0) {
+          allMessages.push(...response.data.data);
+        }
+
+        nextUrl = response.data.paging?.next || null;
+        hasMore = !!nextUrl && response.data.data?.length > 0;
+
+        // Small delay to avoid rate limiting
+        if (hasMore) {
+          await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay
+        }
+      }
+
+      console.log(`[Facebook Client] Fetched ${allMessages.length} total messages for conversation ${conversationId}`);
+      return allMessages;
+    } catch (error: any) {
+      console.error(`[Facebook Client] Error fetching all messages for conversation ${conversationId}:`, error);
+      return allMessages; // Return what we got so far
+    }
+  }
+
+  /**
    * Get user profile (Messenger)
    */
   async getMessengerProfile(psid: string) {
@@ -254,7 +294,7 @@ export class FacebookClient {
         {
           params: {
             access_token: this.accessToken,
-            fields: 'participants,updated_time,messages{from,message}',
+            fields: 'id,participants,updated_time,message_count',
             limit,
           },
         }
@@ -320,6 +360,20 @@ export class FacebookClient {
       return response.data;
     } catch (error: any) {
       throw parseFacebookError(error, `Failed to get Instagram profile for User ID: ${igUserId}`);
+    }
+  }
+
+  /**
+   * Generic method to get conversations (automatically detects platform)
+   */
+  async getConversations(pageIdOrIgId: string, limit = 100) {
+    // Try Messenger first (most common)
+    try {
+      return await this.getMessengerConversations(pageIdOrIgId, limit);
+    } catch (error: any) {
+      // If Messenger fails, try Instagram
+      console.warn('[Facebook Client] Messenger fetch failed, trying Instagram...');
+      return await this.getInstagramConversations(pageIdOrIgId, limit);
     }
   }
 }

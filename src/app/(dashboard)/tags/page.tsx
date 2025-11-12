@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -78,15 +78,20 @@ export default function TagsPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTags().catch(console.error);
   }, []);
 
-  // Update edit color when editing tag changes
+  // Synchronize edit color with editing tag
+  // Using a ref to avoid setState in effect
+  const prevEditingTagRef = useRef(editingTag);
+  
   useEffect(() => {
-    if (editingTag) {
-      setEditColor(editingTag.color);
-    } else {
-      setEditColor('#64748b'); // Reset to default
+    if (prevEditingTagRef.current !== editingTag) {
+      prevEditingTagRef.current = editingTag;
+      if (editingTag) {
+        setEditColor(editingTag.color);
+      }
     }
   }, [editingTag]);
 

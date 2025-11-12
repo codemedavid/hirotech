@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/db'
 import { logActivity } from '@/lib/teams/activity'
+import { TaskPriority, TaskStatus } from '@prisma/client'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -38,10 +39,15 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const where: any = { teamId: id }
-    if (status) where.status = status
+    const where: {
+      teamId: string;
+      status?: TaskStatus;
+      assignedToId?: string;
+      priority?: TaskPriority;
+    } = { teamId: id }
+    if (status) where.status = status as TaskStatus
     if (assignedTo) where.assignedToId = assignedTo
-    if (priority) where.priority = priority
+    if (priority) where.priority = priority as TaskPriority
 
     const tasks = await prisma.teamTask.findMany({
       where,
@@ -188,7 +194,18 @@ export async function POST(
       entityName: task.title
     })
 
-    // TODO: Send notification to assigned member
+    // Send notification to assigned member
+    if (assignedToId && assignedToId !== member.id) {
+      const { notifyTaskAssigned } = await import('@/lib/teams/notifications')
+      await notifyTaskAssigned({
+        taskId: task.id,
+        assigneeId: assignedToId,
+        taskTitle: task.title,
+        assignedBy: member.id,
+        teamId: id,
+        dueDate: task.dueDate
+      }).catch(err => console.error('Failed to send task assignment notification:', err))
+    }
 
     return NextResponse.json({ task }, { status: 201 })
   } catch (error) {

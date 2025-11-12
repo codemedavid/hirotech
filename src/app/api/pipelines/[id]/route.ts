@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
 
+// Enable ISR with 30 second revalidation for pipeline detail
+export const revalidate = 30;
+
 export async function GET(
   request: NextRequest,
   props: { params: Promise<{ id: string }> }
@@ -23,10 +26,18 @@ export async function GET(
         id: id,
         organizationId: session.user.organizationId,
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        color: true,
         stages: {
           orderBy: { order: 'asc' },
-          include: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+            type: true,
             contacts: {
               where: search
                 ? {
@@ -36,9 +47,17 @@ export async function GET(
                     ],
                   }
                 : undefined,
-              take: limit,
+              take: Math.min(limit, 20), // Reduce initial load from 50 to 20
               skip: (page - 1) * limit,
               orderBy: { stageEnteredAt: 'desc' },
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profilePicUrl: true,
+                leadScore: true,
+                tags: true,
+              },
             },
             _count: {
               select: { contacts: true },
@@ -52,7 +71,11 @@ export async function GET(
       return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 });
     }
 
-    return NextResponse.json(pipeline);
+    return NextResponse.json(pipeline, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   } catch (error: unknown) {
     console.error('Get pipeline error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch pipeline';

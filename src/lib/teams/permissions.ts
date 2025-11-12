@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { TeamRole, TeamMemberStatus } from '@prisma/client'
+import { TeamRole } from '@prisma/client'
 
 export type Permission = 
   | 'canViewContacts'

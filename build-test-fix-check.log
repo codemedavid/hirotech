@@ -1,0 +1,29 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 7.4s
+   Running TypeScript ...
+Failed to compile.
+
+./src/lib/teams/validation.ts:97:15
+Type error: No overload matches this call.
+  Overload 1 of 2, '(values: readonly ["image/jpeg", "image/png", "image/gif", "image/webp"], params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; } | undefined): ZodEnum<...>', gave the following error.
+    Object literal may only specify known properties, and 'errorMap' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(entries: Readonly<Record<string, EnumValue>>, params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; } | undefined): ZodEnum<...>', gave the following error.
+    Argument of type 'string[]' is not assignable to parameter of type 'Readonly<Record<string, EnumValue>>'.
+      Index signature for type 'string' is missing in type 'string[]'.
+
+[0m [90m  95 |[39m [36mexport[39m [36mconst[39m imageUploadSchema [33m=[39m z[33m.[39mobject({
+ [90m  96 |[39m   fileName[33m:[39m z[33m.[39mstring()[33m.[39mmin([35m1[39m[33m,[39m [32m'File name required'[39m)[33m,[39m
+[31m[1m>[22m[39m[90m  97 |[39m   fileType[33m:[39m z[33m.[39m[36menum[39m([[32m'image/jpeg'[39m[33m,[39m [32m'image/png'[39m[33m,[39m [32m'image/gif'[39m[33m,[39m [32m'image/webp'[39m][33m,[39m {
+ [90m     |[39m               [31m[1m^[22m[39m
+ [90m  98 |[39m     errorMap[33m:[39m () [33m=>[39m ({ message[33m:[39m [32m'Invalid file type. Supported: JPEG, PNG, GIF, WebP'[39m })
+ [90m  99 |[39m   })[33m,[39m
+ [90m 100 |[39m   fileSize[33m:[39m z[33m.[39mnumber()[33m.[39mint()[33m.[39mpositive()[33m.[39mmax([35m10[39m [33m*[39m [35m1024[39m [33m*[39m [35m1024[39m[33m,[39m [32m'File too large (max 10MB)'[39m)[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null

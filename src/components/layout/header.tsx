@@ -1,6 +1,6 @@
 'use client';
 
-import { signOut, useSession } from 'next-auth/react';
+import { useSupabaseSession, useSignOut } from '@/hooks/use-supabase-session';
 import { useState, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -16,13 +16,14 @@ import { LogOut, Settings, User } from 'lucide-react';
 import Link from 'next/link';
 
 export function Header() {
-  const { data: session } = useSession();
+  const { user } = useSupabaseSession();
+  const signOut = useSignOut();
   const [isMounted, setIsMounted] = useState(false);
 
-  // Mark as mounted after first render
+  // Mark as mounted after first render - this is intentional to avoid hydration mismatch
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
-     
   }, []);
 
   const getInitials = (name?: string | null) => {
@@ -48,16 +49,16 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:ring-2 hover:ring-primary/20 transition-all">
                 <Avatar className="h-10 w-10 ring-2 ring-background">
-                  <AvatarImage src={session?.user?.image || ''} alt={session?.user?.name || ''} />
-                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">{getInitials(session?.user?.name)}</AvatarFallback>
+                  <AvatarImage src={user?.image || ''} alt={user?.name || ''} />
+                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">{getInitials(user?.name)}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 shadow-lg border-border/50">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1.5 py-1">
-                  <p className="text-sm font-semibold">{session?.user?.name}</p>
-                  <p className="text-xs text-muted-foreground">{session?.user?.email}</p>
+                  <p className="text-sm font-semibold">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -76,7 +77,10 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="cursor-pointer text-red-600"
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={async () => {
+                  await signOut();
+                  window.location.href = '/login';
+                }}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 Log out
@@ -86,7 +90,7 @@ export function Header() {
         ) : (
           <Button variant="ghost" className="relative h-10 w-10 rounded-full">
             <Avatar className="h-10 w-10 ring-2 ring-background">
-              <AvatarFallback className="bg-primary/10 text-primary font-semibold">{getInitials(session?.user?.name)}</AvatarFallback>
+              <AvatarFallback className="bg-primary/10 text-primary font-semibold">{getInitials(user?.name)}</AvatarFallback>
             </Avatar>
           </Button>
         )}

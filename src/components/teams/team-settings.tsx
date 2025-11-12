@@ -1,14 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { Copy, RefreshCw, Trash2, AlertCircle } from 'lucide-react'
 import {
@@ -23,8 +21,15 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
+interface Team {
+  id: string
+  name: string
+  description: string | null
+  ownerId: string
+}
+
 interface TeamSettingsProps {
-  team: any
+  team: Team
   currentUserId: string
   onUpdate: () => void
 }
@@ -39,13 +44,13 @@ export function TeamSettings({ team, currentUserId, onUpdate }: TeamSettingsProp
 
   const isOwner = team.ownerId === currentUserId
 
-  async function fetchJoinCode() {
+  const fetchJoinCode = async () => {
     try {
       const response = await fetch(`/api/teams/${team.id}/join-code`)
       const data = await response.json()
       setJoinCode(data.joinCode)
       setJoinCodeExpiry(data.expiresAt)
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch join code')
     }
   }
@@ -59,7 +64,7 @@ export function TeamSettings({ team, currentUserId, onUpdate }: TeamSettingsProp
       setJoinCode(data.joinCode)
       setJoinCodeExpiry(data.expiresAt)
       toast.success('Join code rotated successfully')
-    } catch (error) {
+    } catch {
       toast.error('Failed to rotate join code')
     }
   }
@@ -88,7 +93,7 @@ export function TeamSettings({ team, currentUserId, onUpdate }: TeamSettingsProp
 
       toast.success('Team updated successfully')
       onUpdate()
-    } catch (error) {
+    } catch {
       toast.error('Failed to update team')
     } finally {
       setLoading(false)
@@ -106,14 +111,15 @@ export function TeamSettings({ team, currentUserId, onUpdate }: TeamSettingsProp
       toast.success('Team deleted successfully')
       router.push('/team')
       router.refresh()
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete team')
     }
   }
 
-  useState(() => {
+  useEffect(() => {
     fetchJoinCode()
-  })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team.id])
 
   const expiryTime = joinCodeExpiry 
     ? Math.max(0, Math.floor((new Date(joinCodeExpiry).getTime() - Date.now()) / 1000))

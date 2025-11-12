@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { createClient } from '@/lib/supabase/server';
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -27,7 +28,7 @@ export async function PATCH(request: NextRequest) {
       updateData.image = image;
     }
 
-    // Update user
+    // Update user in database
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: updateData,
@@ -39,6 +40,20 @@ export async function PATCH(request: NextRequest) {
         role: true,
       },
     });
+
+    // Also update Supabase user metadata so the header updates immediately
+    try {
+      const supabase = await createClient();
+      await supabase.auth.updateUser({
+        data: {
+          name: updatedUser.name,
+          image: updatedUser.image,
+        },
+      });
+    } catch (supabaseError) {
+      console.error('Supabase metadata update error:', supabaseError);
+      // Continue even if Supabase update fails - database is source of truth
+    }
 
     return NextResponse.json({
       user: updatedUser,

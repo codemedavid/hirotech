@@ -1,0 +1,386 @@
+
+🧪 COMPREHENSIVE CONFLICT SIMULATION TEST
+Testing race conditions, deadlocks, and data integrity
+
+Running 10 cycles of 7 scenarios each
+════════════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 1/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 1 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 2/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 2 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 3/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 3 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 4/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 4 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 5/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 5 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 6/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 6 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 7/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 7 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 8/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 8 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 9/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 9 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+🔄 CYCLE 10/10
+════════════════════════════════════════════════════════════════════════════════
+
+Testing: Concurrent Contact Updates                         ... ✅ All updates completed
+
+Testing: Concurrent Campaign Creation                       ... ❌ FAIL
+
+Testing: Concurrent Tag Operations                          ... ✅ All operations completed
+
+Testing: Pipeline Stage Movement Race Condition             ... ❌ No contacts in pipeline
+
+Testing: Concurrent Facebook Page Syncs                     ... ✅ 3/3 sync jobs created
+
+Testing: Database Transaction Rollback Test                 ... ✅ Rollback successful
+
+Testing: Unique Constraint Violation                        ... ✅ Constraint properly enforced
+
+📊 Cycle 10 Results: 5 passed, 2 failed
+
+════════════════════════════════════════════════════════════════════════════════
+📊 FINAL SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+
+Total Tests Run: 70
+✅ Passed: 50 (71.4%)
+❌ Failed: 20 (28.6%)
+⏱️  Duration: 123.49s
+
+⚠️ Failures by Scenario:
+  - Concurrent Campaign Creation: 10/10 cycles failed
+  - Pipeline Stage Movement Race Condition: 10/10 cycles failed
+
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+
+⚠️ Warning! Multiple failures detected.
+   Review the failed scenarios for potential issues.
+
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+═
+
+✅ Simulation complete!

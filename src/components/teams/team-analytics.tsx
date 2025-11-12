@@ -1,41 +1,65 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { BarChart3, TrendingUp, Users, MessageSquare, CheckSquare } from 'lucide-react'
+import { TrendingUp, Users, MessageSquare, CheckSquare } from 'lucide-react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { ActivityHeatmap } from './activity-heatmap'
+import { EnhancedActivityHeatmap } from './enhanced-activity-heatmap'
+
+interface TeamMember {
+  id: string
+  role: string
+  status: string
+  lastActiveAt: string | null
+  user: {
+    id: string
+    name: string | null
+    email: string
+    image: string | null
+  }
+  _count?: {
+    activities?: number
+    sentMessages?: number
+    assignedTasks?: number
+  }
+}
+
+interface MemberMetrics {
+  totalActivities: number
+  messagesSent: number
+  tasksCompleted: number
+  pagesAccessed: number
+  totalTimeSpent: number
+  averageSessionDuration: number
+}
+
+interface HeatmapData {
+  [day: string]: {
+    [hour: number]: number
+  }
+}
 
 interface TeamAnalyticsProps {
   teamId: string
 }
 
 export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
-  const [members, setMembers] = useState<any[]>([])
+  const [members, setMembers] = useState<TeamMember[]>([])
   const [selectedMember, setSelectedMember] = useState<string>('')
-  const [metrics, setMetrics] = useState<any>(null)
-  const [heatmap, setHeatmap] = useState<any>(null)
+  const [metrics, setMetrics] = useState<MemberMetrics | null>(null)
+  const [heatmap, setHeatmap] = useState<HeatmapData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchMembers()
-    fetchHeatmap()
-  }, [teamId])
-
-  useEffect(() => {
-    if (selectedMember) {
-      fetchMemberMetrics(selectedMember)
-    }
-  }, [selectedMember])
-
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async () => {
     try {
       const response = await fetch(`/api/teams/${teamId}/members`)
       const data = await response.json()
-      setMembers(data.members.filter((m: any) => m.status === 'ACTIVE'))
+      setMembers(data.members.filter((m: TeamMember) => m.status === 'ACTIVE'))
       if (data.members.length > 0) {
         setSelectedMember(data.members[0].id)
       }
@@ -44,9 +68,9 @@ export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [teamId])
 
-  async function fetchMemberMetrics(memberId: string) {
+  const fetchMemberMetrics = useCallback(async (memberId: string) => {
     try {
       const response = await fetch(
         `/api/teams/${teamId}/activities?view=metrics&memberId=${memberId}`
@@ -56,9 +80,9 @@ export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
     } catch (error) {
       console.error('Error fetching metrics:', error)
     }
-  }
+  }, [teamId])
 
-  async function fetchHeatmap() {
+  const fetchHeatmap = useCallback(async () => {
     try {
       const response = await fetch(
         `/api/teams/${teamId}/activities?view=heatmap&days=30`
@@ -68,7 +92,18 @@ export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
     } catch (error) {
       console.error('Error fetching heatmap:', error)
     }
-  }
+  }, [teamId])
+
+  useEffect(() => {
+    fetchMembers()
+    fetchHeatmap()
+  }, [fetchMembers, fetchHeatmap])
+
+  useEffect(() => {
+    if (selectedMember) {
+      fetchMemberMetrics(selectedMember)
+    }
+  }, [selectedMember, fetchMemberMetrics])
 
   if (loading) {
     return (
@@ -164,7 +199,7 @@ export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
                     <div key={member.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar>
-                          <AvatarImage src={member.user.image} />
+                          <AvatarImage src={member.user.image || undefined} />
                           <AvatarFallback>{member.user.name?.[0] || 'U'}</AvatarFallback>
                         </Avatar>
                         <div>
@@ -240,30 +275,7 @@ export function TeamAnalytics({ teamId }: TeamAnalyticsProps) {
         </TabsContent>
 
         <TabsContent value="heatmap">
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity Heatmap</CardTitle>
-              <CardDescription>
-                Busiest times for team activity over the last 30 days
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {heatmap ? (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Heatmap visualization coming soon...
-                  </p>
-                  <pre className="text-xs overflow-auto max-h-96 bg-muted p-4 rounded">
-                    {JSON.stringify(heatmap, null, 2)}
-                  </pre>
-                </div>
-              ) : (
-                <div className="flex justify-center py-8">
-                  <LoadingSpinner />
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <EnhancedActivityHeatmap teamId={teamId} isAdmin={true} />
         </TabsContent>
       </Tabs>
     </div>

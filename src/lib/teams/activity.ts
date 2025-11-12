@@ -9,7 +9,7 @@ export interface ActivityLogOptions {
   entityType?: string
   entityId?: string
   entityName?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
   ipAddress?: string
   userAgent?: string
   duration?: number
@@ -101,7 +101,7 @@ export async function logEntityUpdate(
   entityType: string,
   entityId: string,
   entityName: string,
-  changes?: Record<string, any>
+  changes?: Record<string, unknown>
 ) {
   return logActivity({
     teamId,
@@ -151,7 +151,16 @@ export async function getTeamActivities(
     offset?: number
   }
 ) {
-  const where: any = { teamId }
+  const where: {
+    teamId: string
+    memberId?: string
+    type?: TeamActivityType
+    entityType?: string
+    createdAt?: {
+      gte?: Date
+      lte?: Date
+    }
+  } = { teamId }
   
   if (filters?.memberId) where.memberId = filters.memberId
   if (filters?.type) where.type = filters.type
@@ -199,7 +208,15 @@ export async function getMemberEngagementMetrics(
   startDate?: Date,
   endDate?: Date
 ) {
-  const where: any = { teamId, memberId }
+  const where: {
+    teamId: string
+    memberId: string
+    type?: TeamActivityType
+    createdAt?: {
+      gte?: Date
+      lte?: Date
+    }
+  } = { teamId, memberId }
   
   if (startDate || endDate) {
     where.createdAt = {}
@@ -249,25 +266,29 @@ export async function getActivityHeatmap(
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - days)
   
-  const activities = await prisma.teamActivity.groupBy({
-    by: ['createdAt'],
+  // Fetch all activities within the date range
+  const activities = await prisma.teamActivity.findMany({
     where: {
       teamId,
       createdAt: { gte: startDate }
     },
-    _count: true
+    select: {
+      createdAt: true
+    }
   })
   
   // Group by day and hour
   const heatmap: Record<string, Record<number, number>> = {}
   
-  activities.forEach(({ createdAt, _count }) => {
+  activities.forEach(({ createdAt }) => {
     const date = new Date(createdAt)
     const day = date.toISOString().split('T')[0]
     const hour = date.getHours()
     
-    if (!heatmap[day]) heatmap[day] = {}
-    heatmap[day][hour] = (heatmap[day][hour] || 0) + _count
+    if (!heatmap[day]) {
+      heatmap[day] = {}
+    }
+    heatmap[day][hour] = (heatmap[day][hour] || 0) + 1
   })
   
   return heatmap

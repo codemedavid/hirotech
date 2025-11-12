@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/db'
 import { logActivity } from '@/lib/teams/activity'
+import { TaskPriority, TaskStatus } from '@prisma/client'
 
 interface RouteParams {
   params: Promise<{ id: string; taskId: string }>
@@ -45,17 +46,38 @@ export async function PATCH(
       tags
     } = body
 
-    const updateData: any = {}
+    type UpdateData = {
+      title?: string;
+      description?: string | null;
+      priority?: TaskPriority;
+      status?: TaskStatus;
+      completedAt?: Date;
+      dueDate?: Date | null;
+      tags?: string[];
+    } & (
+      | { assignedToId: string }
+      | { assignedToId: { set: null } }
+      | { assignedToId?: never }
+    )
+    
+    const updateData: UpdateData = {}
     if (title !== undefined) updateData.title = title.trim()
     if (description !== undefined) updateData.description = description?.trim()
-    if (priority !== undefined) updateData.priority = priority
+    if (priority !== undefined) updateData.priority = priority as TaskPriority
     if (status !== undefined) {
-      updateData.status = status
-      if (status === 'COMPLETED') {
+      const statusEnum = status as TaskStatus
+      updateData.status = statusEnum
+      if (statusEnum === 'COMPLETED') {
         updateData.completedAt = new Date()
       }
     }
-    if (assignedToId !== undefined) updateData.assignedToId = assignedToId
+    if (assignedToId !== undefined) {
+      if (assignedToId === null) {
+        Object.assign(updateData, { assignedToId: { set: null } })
+      } else {
+        Object.assign(updateData, { assignedToId })
+      }
+    }
     if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null
     if (tags !== undefined) updateData.tags = tags
 
@@ -101,6 +123,18 @@ export async function PATCH(
         entityId: task.id,
         entityName: task.title
       })
+
+      // Notify task creator
+      if (task.createdById !== member.id) {
+        const { notifyTaskCompleted } = await import('@/lib/teams/notifications')
+        await notifyTaskCompleted({
+          taskId: task.id,
+          creatorId: task.createdById,
+          taskTitle: task.title,
+          completedBy: member.id,
+          teamId: id
+        }).catch(err => console.error('Failed to send task completion notification:', err))
+      }
     } else {
       await logActivity({
         teamId: id,
@@ -111,6 +145,26 @@ export async function PATCH(
         entityId: task.id,
         entityName: task.title
       })
+
+      // Notify assignee if task was updated
+      if (task.assignedToId && task.assignedToId !== member.id) {
+        const changes = []
+        if (priority !== undefined) changes.push(`Priority: ${priority}`)
+        if (dueDate !== undefined) changes.push(`Due date: ${dueDate ? new Date(dueDate).toLocaleDateString() : 'removed'}`)
+        if (description !== undefined) changes.push('Description updated')
+        
+        if (changes.length > 0) {
+          const { notifyTaskUpdated } = await import('@/lib/teams/notifications')
+          await notifyTaskUpdated({
+            taskId: task.id,
+            assigneeId: task.assignedToId,
+            taskTitle: task.title,
+            changesSummary: changes.join(', '),
+            updatedBy: member.id,
+            teamId: id
+          }).catch(err => console.error('Failed to send task update notification:', err))
+        }
+      }
     }
 
     return NextResponse.json({ task })

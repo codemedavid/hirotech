@@ -1,0 +1,24 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 4.7s
+   Running TypeScript ...
+Failed to compile.
+
+./src/app/api/cron/ai-automations/route.ts:72:34
+Type error: Cannot find name 'AIAutomationRule'. Did you mean 'AutomationRate'?
+
+[0m [90m 70 |[39m }
+ [90m 71 |[39m
+[31m[1m>[22m[39m[90m 72 |[39m [36masync[39m [36mfunction[39m processRule(rule[33m:[39m [33mAIAutomationRule[39m [33m&[39m { user[33m:[39m { organizationId[33m:[39m string } }) {
+ [90m    |[39m                                  [31m[1m^[22m[39m
+ [90m 73 |[39m   [36mconst[39m startTime [33m=[39m [33mDate[39m[33m.[39mnow()[33m;[39m
+ [90m 74 |[39m
+ [90m 75 |[39m   [90m// Check active hours (unless 24/7)[39m[0m
+Next.js build worker exited with code: 1 and signal: null

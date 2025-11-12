@@ -13,6 +13,7 @@ import {
   Tag,
   Settings,
   Users2,
+  Bot,
 } from 'lucide-react';
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Pipelines', href: '/pipelines', icon: GitBranch },
+  { name: 'AI Automations', href: '/ai-automations', icon: Bot },
   { name: 'Templates', href: '/templates', icon: FileText },
   { name: 'Tags', href: '/tags', icon: Tag },
   { name: 'Team', href: '/team', icon: Users2 },

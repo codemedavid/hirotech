@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { validatePipelineIds } from '@/lib/pipelines/validation';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,9 +16,11 @@ export async function POST(request: NextRequest) {
 
     const { pipelineIds } = body;
 
-    if (!Array.isArray(pipelineIds) || pipelineIds.length === 0) {
+    // Validate pipeline IDs
+    const validation = validatePipelineIds(pipelineIds);
+    if (!validation.valid) {
       return NextResponse.json(
-        { error: 'pipelineIds must be a non-empty array' },
+        { error: validation.errors.join(', ') },
         { status: 400 }
       );
     }

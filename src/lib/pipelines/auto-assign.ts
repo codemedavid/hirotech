@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { AIContactAnalysis } from '@/lib/ai/google-ai-service';
 import { LeadStatus } from '@prisma/client';
+import { findBestMatchingStage, shouldPreventDowngrade } from './stage-analyzer';
 
 interface AutoAssignOptions {
   contactId: string;
@@ -13,10 +14,21 @@ interface AutoAssignOptions {
 export async function autoAssignContactToPipeline(options: AutoAssignOptions) {
   const { contactId, aiAnalysis, pipelineId, updateMode, userId } = options;
 
-  // Get contact with current assignment
+  // Get contact with current assignment and score
   const contact = await prisma.contact.findUnique({
     where: { id: contactId },
-    select: { pipelineId: true, stageId: true }
+    select: { 
+      pipelineId: true, 
+      stageId: true,
+      leadScore: true,
+      stage: {
+        select: {
+          order: true,
+          leadScoreMin: true,
+          name: true
+        }
+      }
+    }
   });
 
   if (!contact) return;
@@ -38,16 +50,50 @@ export async function autoAssignContactToPipeline(options: AutoAssignOptions) {
     return;
   }
 
-  // Find matching stage
-  let targetStage = pipeline.stages.find(
+  // INTELLIGENT STAGE MATCHING
+  // Priority 1: Use AI-powered stage analyzer with score ranges and status routing
+  const targetStageId = await findBestMatchingStage(
+    pipelineId,
+    aiAnalysis.leadScore,
+    aiAnalysis.leadStatus
+  );
+
+  let proposedStage = pipeline.stages.find(s => s.id === targetStageId);
+
+  // Priority 2: Try exact name match from AI recommendation
+  if (!proposedStage) {
+    proposedStage = pipeline.stages.find(
     s => s.name.toLowerCase() === aiAnalysis.recommendedStage.toLowerCase()
   );
 
-  // Fallback: if exact match not found, use first stage
-  if (!targetStage) {
-    console.warn(`[Auto-Assign] Stage "${aiAnalysis.recommendedStage}" not found, using first stage`);
-    targetStage = pipeline.stages[0];
+    if (proposedStage) {
+      console.log(`[Auto-Assign] Using AI-recommended stage by name: ${proposedStage.name}`);
+    }
   }
+
+  // Fallback: Use first stage if nothing matched
+  if (!proposedStage) {
+    console.warn(`[Auto-Assign] No matching stage found, using first stage`);
+    proposedStage = pipeline.stages[0];
+  }
+
+  // DOWNGRADE PROTECTION: Prevent high-score contacts from being moved to low stages
+  if (proposedStage && contact.stage) {
+    const shouldBlock = shouldPreventDowngrade(
+      contact.stage.order,
+      proposedStage.order,
+      contact.leadScore,
+      aiAnalysis.leadScore,
+      proposedStage.leadScoreMin
+    );
+
+    if (shouldBlock) {
+      console.log(`[Auto-Assign] Keeping contact in current stage (${contact.stage.name}) - preventing downgrade from score ${aiAnalysis.leadScore}`);
+      return; // Don't reassign - keep in current stage
+    }
+  }
+
+  const targetStage = proposedStage;
 
   // Update contact
   await prisma.contact.update({

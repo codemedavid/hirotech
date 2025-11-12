@@ -16,20 +16,39 @@ import {
   DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Check, X, MessageSquare } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
 
+interface JoinRequest {
+  id: string
+  status: string
+  message?: string
+  createdAt?: Date | string
+  user?: {
+    id: string
+    name: string | null
+    email: string | null
+    image: string | null
+  }
+  invite?: {
+    team: {
+      id: string
+      name: string
+    }
+  }
+}
+
 interface JoinRequestQueueProps {
   teamId: string
-  requests: any[]
+  requests: JoinRequest[]
   onUpdate: () => void
 }
 
 export function JoinRequestQueue({ teamId, requests, onUpdate }: JoinRequestQueueProps) {
   const [processing, setProcessing] = useState<string | null>(null)
   const [reviewNotes, setReviewNotes] = useState('')
-  const [selectedRequest, setSelectedRequest] = useState<any>(null)
+  const [selectedRequest, setSelectedRequest] = useState<JoinRequest | null>(null)
 
   async function processRequest(requestId: string, action: 'approve' | 'reject', notes?: string) {
     setProcessing(requestId)
@@ -87,17 +106,17 @@ export function JoinRequestQueue({ teamId, requests, onUpdate }: JoinRequestQueu
             >
               <div className="flex items-start gap-4 flex-1">
                 <Avatar>
-                  <AvatarImage src={request.user.image} />
+                  <AvatarImage src={request.user?.image || undefined} />
                   <AvatarFallback>
-                    {request.user.name?.[0] || 'U'}
+                    {request.user?.name?.[0] || 'U'}
                   </AvatarFallback>
                 </Avatar>
 
                 <div className="flex-1 space-y-1">
                   <div>
-                    <p className="font-medium">{request.user.name}</p>
+                    <p className="font-medium">{request.user?.name || 'Unknown'}</p>
                     <p className="text-sm text-muted-foreground">
-                      {request.user.email}
+                      {request.user?.email || ''}
                     </p>
                   </div>
                   
@@ -108,9 +127,11 @@ export function JoinRequestQueue({ teamId, requests, onUpdate }: JoinRequestQueu
                     </div>
                   )}
 
-                  <p className="text-xs text-muted-foreground">
-                    Requested {formatDistanceToNow(new Date(request.createdAt), { addSuffix: true })}
-                  </p>
+                  {request.createdAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Requested {formatDistanceToNow(new Date(request.createdAt), { addSuffix: true })}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -134,7 +155,7 @@ export function JoinRequestQueue({ teamId, requests, onUpdate }: JoinRequestQueu
                     <DialogHeader>
                       <DialogTitle>Approve Join Request</DialogTitle>
                       <DialogDescription>
-                        Approve {request.user.name} to join the team
+                        Approve {request.user?.name || 'this user'} to join the team
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">

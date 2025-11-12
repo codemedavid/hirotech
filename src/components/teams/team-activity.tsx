@@ -3,10 +3,17 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { formatDistanceToNow } from 'date-fns'
-import { ActivityType } from '@prisma/client'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
+
+interface Activity {
+  id: string
+  type: string
+  action: string
+  entityType?: string
+  entityName?: string
+  createdAt: string
+}
 
 interface TeamActivityProps {
   teamId: string
@@ -28,7 +35,7 @@ const activityIcons: Record<string, string> = {
 }
 
 export function TeamActivity({ teamId, memberId }: TeamActivityProps) {
-  const [activities, setActivities] = useState<any[]>([])
+  const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -38,9 +45,10 @@ export function TeamActivity({ teamId, memberId }: TeamActivityProps) {
           `/api/teams/${teamId}/activities?memberId=${memberId}&limit=10`
         )
         const data = await response.json()
-        setActivities(data.activities)
+        setActivities(data.activities || [])
       } catch (error) {
         console.error('Error fetching activities:', error)
+        setActivities([])
       } finally {
         setLoading(false)
       }
@@ -60,13 +68,13 @@ export function TeamActivity({ teamId, memberId }: TeamActivityProps) {
           <div className="flex justify-center py-8">
             <LoadingSpinner />
           </div>
-        ) : activities.length === 0 ? (
+        ) : !activities || activities.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
             No recent activity
           </p>
         ) : (
           <div className="space-y-4">
-            {activities.map((activity: any) => (
+            {activities.map((activity) => (
               <div key={activity.id} className="flex items-start gap-3">
                 <div className="text-2xl">{activityIcons[activity.type] || '📍'}</div>
                 <div className="flex-1 space-y-1">

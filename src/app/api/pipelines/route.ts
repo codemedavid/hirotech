@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
 import { StageType } from '@prisma/client';
+import { applyStageScoreRanges } from '@/lib/pipelines/stage-analyzer';
+
+// Enable ISR with 60 second revalidation
+export const revalidate = 60;
 
 export async function GET() {
   try {
@@ -27,7 +31,11 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json(pipelines);
+    return NextResponse.json(pipelines, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+      },
+    });
   } catch (error: unknown) {
     console.error('Get pipelines error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch pipelines';
@@ -77,7 +85,18 @@ export async function POST(request: NextRequest) {
       include: { stages: true },
     });
 
-    return NextResponse.json(pipeline);
+    // AUTO-GENERATE intelligent score ranges for all stages
+    console.log(`[Pipeline Create] Auto-generating score ranges for ${pipeline.name}...`);
+    await applyStageScoreRanges(pipeline.id);
+    console.log(`[Pipeline Create] Score ranges applied successfully`);
+
+    // Fetch updated pipeline with score ranges
+    const updatedPipeline = await prisma.pipeline.findUnique({
+      where: { id: pipeline.id },
+      include: { stages: true }
+    });
+
+    return NextResponse.json(updatedPipeline || pipeline);
   } catch (error: unknown) {
     console.error('Create pipeline error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to create pipeline';

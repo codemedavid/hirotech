@@ -1,0 +1,130 @@
+==================================
+COMPREHENSIVE ENDPOINT TESTING
+Started: Thu, Nov 13, 2025 12:22:10 AM
+==================================
+
+==================
+1. HEALTH CHECKS
+==================
+[1;33mTesting: System Health Check[0m
+  Method: GET
+  Endpoint: /api/health
+  [0;32m✓ SUCCESS[0m (HTTP 200)
+  Response: {"timestamp":"2025-11-12T16:22:10.876Z","status":"healthy","services":{"database":{"status":"healthy","details":"Database connection successful"},"prisma":{"status":"healthy","details":"Pr
+---
+
+===========================
+2. AI AUTOMATION ENDPOINTS
+===========================
+[1;33mTesting: List AI Automation Rules[0m
+  Method: GET
+  Endpoint: /api/ai-automations
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+[1;33mTesting: Manual Trigger AI Automation[0m
+  Method: POST
+  Endpoint: /api/ai-automations/execute
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+[1;33mTesting: Cron Job AI Automations (may require auth)[0m
+  Method: GET
+  Endpoint: /api/cron/ai-automations
+  [0;32m✓ SUCCESS[0m (HTTP 200)
+  Response: {"success":true,"rulesProcessed":0,"totalSent":0,"totalFailed":0}
+
+---
+
+==================
+3. TEAM ENDPOINTS
+==================
+[1;33mTesting: List Teams[0m
+  Method: GET
+  Endpoint: /api/teams
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+=====================
+4. CONTACT ENDPOINTS
+=====================
+[1;33mTesting: List Contacts[0m
+  Method: GET
+  Endpoint: /api/contacts
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+[1;33mTesting: Get Total Contact Count[0m
+  Method: GET
+  Endpoint: /api/contacts/total-count
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+======================
+5. CAMPAIGN ENDPOINTS
+======================
+[1;33mTesting: List Campaigns[0m
+  Method: GET
+  Endpoint: /api/campaigns
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+======================
+6. PIPELINE ENDPOINTS
+======================
+[1;33mTesting: List Pipelines[0m
+  Method: GET
+  Endpoint: /api/pipelines
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+======================
+7. FACEBOOK ENDPOINTS
+======================
+[1;33mTesting: List Connected Facebook Pages[0m
+  Method: GET
+  Endpoint: /api/facebook/pages/connected
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+================
+8. TAG ENDPOINTS
+================
+[1;33mTesting: List Tags[0m
+  Method: GET
+  Endpoint: /api/tags
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+=====================
+9. TEMPLATE ENDPOINTS
+=====================
+[1;33mTesting: List Templates[0m
+  Method: GET
+  Endpoint: /api/templates
+  [1;33m⚠ AUTH REQUIRED[0m (HTTP 401)
+  Response: {"error":"Unauthorized"}
+
+---
+
+==================================
+TESTING COMPLETE
+Finished: Thu, Nov 13, 2025 12:22:19 AM
+==================================
+
+Full results saved to: endpoint-test-results.log

@@ -1,0 +1,24 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 6.9s
+   Running TypeScript ...
+Failed to compile.
+
+./src/app/api/cron/send-scheduled/route.ts:66:22
+Type error: Property 'autoFetchEnabled' does not exist on type '{ facebookPage: { id: string; createdAt: Date; updatedAt: Date; organizationId: string; pageId: string; pageName: string; pageAccessToken: string; instagramAccountId: string | null; ... 6 more ...; autoPipelineMode: AutoPipelineMode; }; template: { ...; } | null; } & { ...; }'.
+
+[0m [90m 64 |[39m
+ [90m 65 |[39m         [90m// STEP 1: Auto-fetch recipients if enabled[39m
+[31m[1m>[22m[39m[90m 66 |[39m         [36mif[39m (campaign[33m.[39mautoFetchEnabled) {
+ [90m    |[39m                      [31m[1m^[22m[39m
+ [90m 67 |[39m           console[33m.[39mlog([32m'[Cron Send Scheduled] Auto-fetch enabled, fetching fresh recipients...'[39m)[33m;[39m
+ [90m 68 |[39m           
+ [90m 69 |[39m           [36mtry[39m {[0m
+Next.js build worker exited with code: 1 and signal: null

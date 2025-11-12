@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Loader2, Upload, User } from 'lucide-react';
+import { Loader2, Upload, Camera } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const profileSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(50),
-  image: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  image: z.string().optional().or(z.literal('')),
 });
 
 type ProfileFormData = z.infer<typeof profileSchema>;
@@ -31,7 +31,9 @@ interface ProfileFormProps {
 export function ProfileForm({ user }: ProfileFormProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState(user.image || '');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -59,6 +61,54 @@ export function ProfileForm({ user }: ProfileFormProps) {
   const handleImageUrlChange = (url: string) => {
     setPreviewImage(url);
     setValue('image', url);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // Create FormData
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Upload to API
+      const response = await fetch('/api/user/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to upload image');
+      }
+
+      const { imageUrl } = await response.json();
+      
+      // Update preview and form value
+      setPreviewImage(imageUrl);
+      setValue('image', imageUrl);
+      
+      toast.success('Image uploaded successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const onSubmit = async (data: ProfileFormData) => {
@@ -90,43 +140,75 @@ export function ProfileForm({ user }: ProfileFormProps) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       {/* Profile Photo */}
-      <div className="flex items-center gap-6">
-        <Avatar className="h-24 w-24">
-          <AvatarImage src={previewImage} alt={user.name || 'User'} />
-          <AvatarFallback className="text-2xl bg-primary/10 text-primary">
-            {getInitials(user.name)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 space-y-2">
-          <Label htmlFor="image">Profile Photo URL</Label>
+      <div className="flex items-start gap-6">
+        <div className="relative group">
+          <Avatar className="h-24 w-24">
+            <AvatarImage src={previewImage} alt={user.name || 'User'} />
+            <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+              {getInitials(user.name)}
+            </AvatarFallback>
+          </Avatar>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="absolute bottom-0 right-0 h-8 w-8 rounded-full shadow-md"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || isUploading}
+          >
+            <Camera className="h-4 w-4" />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+        </div>
+        <div className="flex-1 space-y-3">
+          <div>
+            <Label>Profile Photo</Label>
+            <p className="text-sm text-muted-foreground mt-1">
+              Click the camera icon to upload from your device
+            </p>
+          </div>
           <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || isUploading}
+              className="flex-1"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Photo
+                </>
+              )}
+            </Button>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="image" className="text-sm">Or enter image URL</Label>
             <Input
               id="image"
               placeholder="https://example.com/photo.jpg"
               {...register('image')}
               onChange={(e) => handleImageUrlChange(e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || isUploading}
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              disabled={isLoading}
-              onClick={() => {
-                const url = prompt('Enter image URL:');
-                if (url) {
-                  handleImageUrlChange(url);
-                }
-              }}
-            >
-              <Upload className="h-4 w-4" />
-            </Button>
+            {errors.image && (
+              <p className="text-sm text-destructive">{errors.image.message}</p>
+            )}
           </div>
-          {errors.image && (
-            <p className="text-sm text-destructive">{errors.image.message}</p>
-          )}
-          <p className="text-sm text-muted-foreground">
-            Enter a URL to your profile photo or use an image hosting service
+          <p className="text-xs text-muted-foreground">
+            Recommended: Square image, at least 200x200px, max 5MB
           </p>
         </div>
       </div>

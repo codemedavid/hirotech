@@ -1,0 +1,87 @@
+[36m
+🚀 Starting Comprehensive System Tests...[0m
+[34m📍 Base URL: http://localhost:3000[0m
+[34m⏰ Started at: 11/13/2025, 7:26:38 AM[0m
+[36m
+🧪 Testing AI Automations Endpoints...[0m
+[32m  ✓ List Automations: Endpoint accessible[0m
+[32m  ✓ Create Automation: Auth required (expected)[0m
+[32m  ✓ Execute Automation: Auth required (expected)[0m
+[36m
+🧪 Testing Tags Endpoint...[0m
+[32m  ✓ Tags API: Auth required (expected)[0m
+[36m
+🧪 Testing Database Connection...[0m
+[32m  ✓ Database: Connection OK[0m
+[36m
+🧪 Testing Concurrent Request Handling...[0m
+[32m  ✓ Concurrent Requests: All handled correctly[0m
+[36m
+🧪 Simulating CRUD Conflicts...[0m
+[34m  ℹ Create/Read/Update/Delete conflicts require authentication[0m
+[34m  ℹ Would test:[0m
+[34m    - Creating rule while another is being created[0m
+[34m    - Deleting rule while it's being updated[0m
+[34m    - Updating rule while it's being executed[0m
+[34m    - Bulk deleting rules concurrently[0m
+[36m
+🧪 Testing Data Validation...[0m
+[32m  ✓ Validation: Empty payload rejected correctly[0m
+[32m  ✓ Validation: Missing name rejected correctly[0m
+[32m  ✓ Validation: Missing customPrompt rejected correctly[0m
+[32m  ✓ Validation: No time interval rejected correctly[0m
+[36m
+🧪 Testing for Memory Issues...[0m
+[34m  ℹ Sending 50 requests to check for memory issues...[0m
+[34m  ℹ Average response time: 22.26ms[0m
+[32m  ✓ Memory: No obvious memory issues[0m
+[36m
+🧪 Testing Error Handling...[0m
+[32m  ✓ Error: Invalid ID handled correctly[0m
+[32m  ✓ Error: Update Invalid ID handled correctly[0m
+[32m  ✓ Error: Delete Invalid ID handled correctly[0m
+[36m
+🧪 Testing Response Times...[0m
+[32m  ✓ /api/ai-automations: 24ms (fast)[0m
+[32m  ✓ /api/tags: 25ms (fast)[0m
+[32m  ✓ /api/facebook/pages/connected: 17ms (fast)[0m
+[36m
+🧪 Testing Security...[0m
+[32m  ✓ Security: Unauthorized requests blocked[0m
+[36m
+============================================================[0m
+[36m📊 COMPREHENSIVE SYSTEM TEST REPORT[0m
+[36m============================================================[0m
+[32m
+✅ PASSED: 18[0m
+[32m   • List Automations endpoint[0m
+[32m   • Create Automation endpoint[0m
+[32m   • Execute Automation endpoint[0m
+[32m   • Tags API endpoint[0m
+[32m   • Database connection[0m
+[32m   • Concurrent request handling[0m
+[32m   • Validation - Empty payload[0m
+[32m   • Validation - Missing name[0m
+[32m   • Validation - Missing customPrompt[0m
+[32m   • Validation - No time interval[0m
+[32m   • Memory leak test[0m
+[32m   • Error handling - Invalid ID[0m
+[32m   • Error handling - Update Invalid ID[0m
+[32m   • Error handling - Delete Invalid ID[0m
+[32m   • Response time - /api/ai-automations[0m
+[32m   • Response time - /api/tags[0m
+[32m   • Response time - /api/facebook/pages/connected[0m
+[32m   • Security - Auth check[0m
+[33m
+⚠️  WARNINGS: 1[0m
+[33m   • CRUD conflict testing requires authenticated session[0m
+[36m
+============================================================[0m
+[32mSuccess Rate: 94.7%[0m
+[36m============================================================[0m
+[34m
+💡 RECOMMENDATIONS:[0m
+[34m   • Review warnings for potential issues[0m
+[34m   • Run authenticated tests with valid session[0m
+[34m   • Test with production-like database load[0m
+[34m   • Monitor response times under real traffic[0m

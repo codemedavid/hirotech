@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -24,45 +24,97 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/register', {
+      console.log('[Register] === Starting Supabase Registration ===');
+      console.log('[Register] Email:', email);
+      console.log('[Register] Name:', name);
+      console.log('[Register] Organization:', organizationName);
+
+      const supabase = createClient();
+
+      // Step 1: Register user with Supabase Auth
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+            organization_name: organizationName,
+          },
+        },
+      });
+
+      console.log('[Register] Supabase signup response:', {
+        hasUser: !!authData?.user,
+        hasSession: !!authData?.session,
+        error: signUpError?.message,
+      });
+
+      if (signUpError) {
+        console.error('[Register] ❌ Signup error:', signUpError);
+        
+        if (signUpError.message.includes('already registered')) {
+          setError('This email is already registered. Please login instead.');
+        } else {
+          setError(signUpError.message);
+        }
+        
+        setIsLoading(false);
+        return;
+      }
+
+      if (!authData?.user) {
+        console.error('[Register] ❌ No user returned');
+        setError('Registration failed. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('[Register] ✅ User created in Supabase:', authData.user.id);
+
+      // Step 2: Create organization and user profile in our database
+      const response = await fetch('/api/auth/register-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          userId: authData.user.id,
           name,
           email,
-          password,
           organizationName,
         }),
       });
 
-      const data = await response.json();
+      const profileData = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Registration failed');
+        console.error('[Register] ❌ Profile creation failed:', profileData.error);
+        // User is created in Supabase but profile failed
+        // They can still login but might have issues
+        setError('Account created but profile setup failed. Please contact support.');
         setIsLoading(false);
         return;
       }
 
-      // Auto-login after registration
-      const result = await signIn('credentials', {
-        email,
-        password,
-        redirect: false,
-      });
+      console.log('[Register] ✅ Profile created successfully!');
 
-      if (result?.error) {
-        setError('Account created but login failed. Please try logging in.');
+      // Check if email confirmation is required
+      if (authData.session) {
+        console.log('[Register] ✅ Auto-logged in! Redirecting to dashboard...');
+        router.push('/dashboard');
+        router.refresh();
+      } else {
+        console.log('[Register] 📧 Email confirmation required');
+        setError('Registration successful! Please check your email to verify your account before logging in.');
         setIsLoading(false);
-        return;
+        // Redirect to login after showing message
+        setTimeout(() => {
+          router.push('/login');
+        }, 3000);
       }
-
-      router.push('/dashboard');
-      router.refresh();
     } catch (error) {
-      console.error('Registration error:', error);
-      setError('An error occurred. Please try again.');
+      console.error('[Register] 💥 Exception:', error);
+      setError('An unexpected error occurred. Please try again or contact support.');
       setIsLoading(false);
     }
   };

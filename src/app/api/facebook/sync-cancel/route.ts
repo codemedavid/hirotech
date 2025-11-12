@@ -22,13 +22,6 @@ export async function POST(request: NextRequest) {
     // Get the sync job
     const job = await prisma.syncJob.findUnique({
       where: { id: jobId },
-      include: {
-        facebookPage: {
-          select: {
-            organizationId: true,
-          },
-        },
-      },
     });
 
     if (!job) {
@@ -38,8 +31,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify job belongs to user's organization
-    if (job.facebookPage.organizationId !== session.user.organizationId) {
+    // Verify job belongs to user's organization by checking the FacebookPage
+    const page = await prisma.facebookPage.findFirst({
+      where: {
+        id: job.facebookPageId,
+        organizationId: session.user.organizationId,
+      },
+    });
+
+    if (!page) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }

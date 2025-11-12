@@ -18,8 +18,20 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
+interface Team {
+  id: string
+  name: string
+  _count: {
+    members: number
+  }
+  members: Array<{
+    role: string
+    status: string
+  }>
+}
+
 interface TeamSelectorProps {
-  teams: any[]
+  teams: Team[]
   selectedTeamId: string
   onSelect: (teamId: string) => void
 }

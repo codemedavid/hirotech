@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,7 @@ interface ContactCardProps {
   isDragging?: boolean;
 }
 
-export function ContactCard({ contact, isDragging = false }: ContactCardProps) {
+export const ContactCard = memo(function ContactCard({ contact, isDragging = false }: ContactCardProps) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: contact.id,
     data: contact,
@@ -75,5 +76,5 @@ export function ContactCard({ contact, isDragging = false }: ContactCardProps) {
       </div>
     </Card>
   );
-}
+});
 

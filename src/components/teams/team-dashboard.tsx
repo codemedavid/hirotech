@@ -8,25 +8,55 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TeamSelector } from './team-selector'
 import { TeamActivity } from './team-activity'
-import { TeamInbox } from './team-inbox'
+import { EnhancedTeamInbox } from './enhanced-team-inbox'
 import { TeamTasks } from './team-tasks'
 import { TeamMembers } from './team-members'
+import { EnhancedTeamMembers } from './enhanced-team-members'
 import { TeamSettings } from './team-settings'
 import { JoinRequestQueue } from './join-request-queue'
 import { TeamAnalytics } from './team-analytics'
 import { Users, MessageSquare, CheckSquare, BarChart3, Settings, Bell } from 'lucide-react'
 import { toast } from 'sonner'
+import { TeamNotificationsDropdown } from './team-notifications-dropdown'
+
+interface Team {
+  id: string
+  name: string
+  description: string | null
+  ownerId: string
+  _count: {
+    members: number
+    tasks: number
+    messages: number
+  }
+  members: Array<{
+    id: string
+    role: string
+    status: string
+  }>
+}
+
+interface PendingRequest {
+  id: string
+  status: string
+  invite: {
+    team: {
+      id: string
+      name: string
+    }
+  }
+}
 
 interface TeamDashboardProps {
-  teams: any[]
-  activeTeam: any
+  teams: Team[]
+  activeTeam: Team | undefined
   currentUserId: string
-  pendingRequests: any[]
+  pendingRequests: PendingRequest[]
 }
 
 export function TeamDashboard({ teams, activeTeam, currentUserId, pendingRequests }: TeamDashboardProps) {
   const router = useRouter()
-  const [selectedTeamId, setSelectedTeamId] = useState(activeTeam?.id)
+  const [selectedTeamId, setSelectedTeamId] = useState(activeTeam?.id || teams[0]?.id || '')
   const [activeTab, setActiveTab] = useState('overview')
 
   const selectedTeam = teams.find(t => t.id === selectedTeamId) || activeTeam
@@ -91,6 +121,13 @@ export function TeamDashboard({ teams, activeTeam, currentUserId, pendingRequest
         </div>
         
         <div className="flex items-center gap-4">
+          {currentMember && (
+            <TeamNotificationsDropdown 
+              teamId={selectedTeamId}
+              currentMemberId={currentMember.id}
+            />
+          )}
+          
           {teamPendingRequests.length > 0 && isAdmin && (
             <Button
               variant="outline"
@@ -107,7 +144,7 @@ export function TeamDashboard({ teams, activeTeam, currentUserId, pendingRequest
           
           <TeamSelector
             teams={teams}
-            selectedTeamId={selectedTeamId}
+            selectedTeamId={selectedTeamId || ''}
             onSelect={switchTeam}
           />
         </div>
@@ -176,23 +213,25 @@ export function TeamDashboard({ teams, activeTeam, currentUserId, pendingRequest
               </Card>
             </div>
 
-            <TeamActivity teamId={selectedTeam.id} memberId={currentMember.id} />
+            {currentMember && <TeamActivity teamId={selectedTeam.id} memberId={currentMember.id} />}
           </TabsContent>
 
           <TabsContent value="inbox">
-            <TeamInbox teamId={selectedTeam.id} currentMemberId={currentMember.id} />
+            {currentMember && <EnhancedTeamInbox teamId={selectedTeam.id} currentMemberId={currentMember.id} isAdmin={isAdmin} />}
           </TabsContent>
 
           <TabsContent value="tasks">
-            <TeamTasks 
-              teamId={selectedTeam.id} 
-              currentMemberId={currentMember.id}
-              isAdmin={isAdmin}
-            />
+            {currentMember && (
+              <TeamTasks 
+                teamId={selectedTeam.id} 
+                currentMemberId={currentMember.id}
+                isAdmin={isAdmin}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="members">
-            <TeamMembers 
+            <EnhancedTeamMembers 
               teamId={selectedTeam.id}
               currentUserId={currentUserId}
               isAdmin={isAdmin}

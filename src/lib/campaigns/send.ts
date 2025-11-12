@@ -431,12 +431,29 @@ export async function startCampaign(campaignId: string) {
 
   console.log('🚀 Using fast parallel sending mode - NO rate limiting');
   
+  // Check if we have AI-generated messages to use
+  const aiMessagesMap = (campaign as any).aiMessagesMap as Record<string, string> | null;
+  const useAiMessages = (campaign as any).useAiPersonalization && aiMessagesMap;
+  
+  if (useAiMessages) {
+    console.log(`📝 Using AI-personalized messages for ${Object.keys(aiMessagesMap).length} contacts`);
+  }
+  
   const messages = targetContacts.map((contact) => {
-    let messageContent = campaign.template?.content || '';
-    messageContent = messageContent
-      .replace(/\{firstName\}/g, contact.firstName)
-      .replace(/\{lastName\}/g, contact.lastName || '')
-      .replace(/\{name\}/g, `${contact.firstName} ${contact.lastName || ''}`.trim());
+    let messageContent: string;
+    
+    // Use AI-generated message if available, otherwise use template
+    if (useAiMessages && aiMessagesMap[contact.id]) {
+      messageContent = aiMessagesMap[contact.id];
+      console.log(`✨ Using AI message for ${contact.firstName}: "${messageContent.substring(0, 50)}..."`);
+    } else {
+      // Fallback to template with variable replacement
+      messageContent = campaign.template?.content || '';
+      messageContent = messageContent
+        .replace(/\{firstName\}/g, contact.firstName)
+        .replace(/\{lastName\}/g, contact.lastName || '')
+        .replace(/\{name\}/g, `${contact.firstName} ${contact.lastName || ''}`.trim());
+    }
 
     return {
       campaignId: campaign.id,

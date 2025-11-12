@@ -1,62 +1,758 @@
-// Messenger Bulk Messaging Platform Database Schema
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// ============================================
-// ORGANIZATION & USER MANAGEMENT
-// ============================================
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  users         User[]
-  contacts      Contact[]
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   campaigns     Campaign[]
-  templates     Template[]
+  contacts      Contact[]
   facebookPages FacebookPage[]
   pipelines     Pipeline[]
   tags          Tag[]
   teams         Team[]
+  templates     Template[]
+  users         User[]
 }
 
 model User {
+  id                    String                  @id
+  email                 String                  @unique
+  password              String?
+  name                  String?
+  image                 String?
+  role                  Role                    @default(AGENT)
+  organizationId        String
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  activeTeamId          String?
+  AIAutomationExecution AIAutomationExecution[]
+  AIAutomationRule      AIAutomationRule[]
+  campaigns             Campaign[]
+  activities            ContactActivity[]
+  conversations         Conversation[]
+  ownedTeams            Team[]                  @relation("TeamOwner")
+  broadcasts            TeamBroadcast[]
+  createdInvites        TeamInvite[]
+  reviewedRequests      TeamJoinRequest[]       @relation("ReviewedRequests")
+  joinRequests          TeamJoinRequest[]
+  teamMemberships       TeamMember[]
+  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model FacebookPage {
+  id                 String                 @id @default(cuid())
+  organizationId     String
+  pageId             String                 @unique
+  pageName           String
+  pageAccessToken    String
+  instagramAccountId String?                @unique
+  instagramUsername  String?
+  autoSync           Boolean                @default(true)
+  syncInterval       Int                    @default(3600)
+  lastSyncedAt       DateTime?
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  autoPipelineId     String?
+  autoPipelineMode   AutoPipelineMode       @default(SKIP_EXISTING)
+  AIAutomationRule   AIAutomationRule[]
+  campaigns          Campaign[]
+  contacts           Contact[]
+  conversations      Conversation[]
+  autoPipeline       Pipeline?              @relation(fields: [autoPipelineId], references: [id])
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  syncJobs           SyncJob[]
+  teamPermissions    TeamMemberPermission[]
+}
+
+model Contact {
+  id                    String                  @id @default(cuid())
+  messengerPSID         String?
+  instagramSID          String?
+  firstName             String
+  lastName              String?
+  profilePicUrl         String?
+  locale                String?
+  timezone              Int?
+  hasMessenger          Boolean                 @default(false)
+  hasInstagram          Boolean                 @default(false)
+  organizationId        String
+  facebookPageId        String
+  pipelineId            String?
+  stageId               String?
+  stageEnteredAt        DateTime?
+  leadScore             Int                     @default(0)
+  leadStatus            LeadStatus              @default(NEW)
+  tags                  String[]
+  notes                 String?
+  aiContext             String?
+  aiContextUpdatedAt    DateTime?
+  lastInteraction       DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  AIAutomationExecution AIAutomationExecution[]
+  AIAutomationStop      AIAutomationStop[]
+  facebookPage          FacebookPage            @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline              Pipeline?               @relation(fields: [pipelineId], references: [id])
+  stage                 PipelineStage?          @relation(fields: [stageId], references: [id])
+  activities            ContactActivity[]
+  conversations         Conversation[]
+  messages              Message[]
+  groups                ContactGroup[]          @relation("ContactToContactGroup")
+
+  @@unique([messengerPSID, facebookPageId])
+  @@index([instagramSID])
+  @@index([pipelineId, stageId])
+  @@index([leadStatus])
+  @@index([organizationId])
+}
+
+model Tag {
   id             String       @id @default(cuid())
-  email          String       @unique
-  password       String?
-  name           String?
-  image          String?
-  role           Role         @default(AGENT)
+  name           String
+  description    String?
+  color          String       @default("#64748b")
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactCount   Int          @default(0)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model ContactGroup {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  color       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  campaigns   Campaign[] @relation("CampaignToContactGroup")
+  contacts    Contact[]  @relation("ContactToContactGroup")
+}
+
+model Pipeline {
+  id             String               @id @default(cuid())
+  name           String
+  description    String?
+  color          String               @default("#3b82f6")
+  icon           String?
+  isDefault      Boolean              @default(false)
+  isArchived     Boolean              @default(false)
+  organizationId String
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  contacts       Contact[]
+  facebookPages  FacebookPage[]
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  automations    PipelineAutomation[]
+  stages         PipelineStage[]
+
+  @@index([organizationId, isArchived])
+}
+
+model PipelineStage {
+  id             String            @id @default(cuid())
+  name           String
+  description    String?
+  color          String            @default("#64748b")
+  order          Int
+  type           StageType         @default(IN_PROGRESS)
+  leadScoreMin   Int               @default(0)
+  leadScoreMax   Int               @default(100)
+  pipelineId     String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  contacts       Contact[]
+  fromActivities ContactActivity[] @relation("fromStage")
+  activities     ContactActivity[] @relation("toStage")
+  pipeline       Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineId, order])
+  @@index([pipelineId])
+}
+
+model ContactActivity {
+  id          String         @id @default(cuid())
+  contactId   String
+  type        ActivityType
+  title       String
+  description String?
+  metadata    Json?
+  fromStageId String?
+  toStageId   String?
+  userId      String?
+  createdAt   DateTime       @default(now())
+  contact     Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  fromStage   PipelineStage? @relation("fromStage", fields: [fromStageId], references: [id])
+  toStage     PipelineStage? @relation("toStage", fields: [toStageId], references: [id])
+  user        User?          @relation(fields: [userId], references: [id])
+
+  @@index([contactId, createdAt])
+  @@index([type])
+}
+
+model PipelineAutomation {
+  id                String            @id @default(cuid())
+  name              String
+  description       String?
+  isActive          Boolean           @default(true)
+  pipelineId        String
+  triggerType       AutomationTrigger
+  triggerConditions Json
+  actions           Json
+  timesTriggered    Int               @default(0)
+  lastTriggeredAt   DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  pipeline          Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([pipelineId, isActive])
+}
+
+model Campaign {
+  id               String         @id @default(cuid())
+  name             String
+  description      String?
+  status           CampaignStatus @default(DRAFT)
+  platform         Platform
+  messageTag       MessageTag?
+  facebookPageId   String
+  scheduledAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  organizationId   String
+  createdById      String
+  templateId       String?
+  targetingType    TargetingType  @default(CONTACT_GROUPS)
+  targetContactIds String[]
+  targetTags       String[]
+  targetStageIds   String[]
+  targetFilters    Json?
+  rateLimit        Int            @default(3600)
+  totalRecipients  Int            @default(0)
+  sentCount        Int            @default(0)
+  deliveredCount   Int            @default(0)
+  readCount        Int            @default(0)
+  failedCount      Int            @default(0)
+  repliedCount     Int            @default(0)
   
-  // Current active context
-  activeTeamId   String?
+  // Scheduled Messages Feature
+  autoFetchEnabled      Boolean  @default(false)
+  includeTags           String[]
+  excludeTags           String[]
+  lastFetchAt           DateTime?
+  fetchCount            Int      @default(0)
   
+  // AI Personalization Feature
+  useAiPersonalization  Boolean  @default(false)
+  aiCustomInstructions  String?
+  aiMessagesMap         Json?
+  
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdBy        User           @relation(fields: [createdById], references: [id])
+  facebookPage     FacebookPage   @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template         Template?      @relation(fields: [templateId], references: [id])
+  messages         Message[]
+  groups           ContactGroup[] @relation("CampaignToContactGroup")
+
+  @@index([status, platform])
+  @@index([organizationId])
+  @@index([scheduledAt]) 
+  @@index([status, scheduledAt])
+}
+
+model Template {
+  id             String       @id @default(cuid())
+  name           String
+  content        String
+  variables      String[]
+  platform       Platform
+  category       String?
+  recommendedTag MessageTag?
+  organizationId String
+  usageCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
   campaigns      Campaign[]
-  conversations  Conversation[]
-  activities     ContactActivity[]
-  
-  // Team relations
-  ownedTeams     Team[]       @relation("TeamOwner")
-  teamMemberships TeamMember[]
-  createdInvites TeamInvite[]
-  joinRequests   TeamJoinRequest[]
-  reviewedRequests TeamJoinRequest[] @relation("ReviewedRequests")
-  broadcasts     TeamBroadcast[]
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id                    String                  @id @default(cuid())
+  contactId             String
+  facebookPageId        String
+  platform              Platform
+  status                ConversationStatus      @default(OPEN)
+  lastMessageAt         DateTime
+  assignedToId          String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  AIAutomationExecution AIAutomationExecution[]
+  assignedTo            User?                   @relation(fields: [assignedToId], references: [id])
+  contact               Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  facebookPage          FacebookPage            @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+  messages              Message[]
+
+  @@index([status, platform])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id                String        @id @default(cuid())
+  content           String
+  platform          Platform
+  status            MessageStatus @default(PENDING)
+  messageTag        MessageTag?
+  facebookMessageId String?
+  contactId         String
+  conversationId    String?
+  campaignId        String?
+  isFromBusiness    Boolean       @default(true)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  createdAt         DateTime      @default(now())
+  campaign          Campaign?     @relation(fields: [campaignId], references: [id])
+  contact           Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation      Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@index([conversationId, createdAt])
+}
+
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  platform  Platform
+  eventType String
+  payload   Json
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([processed, createdAt])
+}
+
+model SyncJob {
+  id             String        @id @default(cuid())
+  facebookPageId String
+  status         SyncJobStatus @default(PENDING)
+  totalContacts  Int           @default(0)
+  syncedContacts Int           @default(0)
+  failedContacts Int           @default(0)
+  errors         Json?
+  tokenExpired   Boolean       @default(false)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  facebookPage   FacebookPage  @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+
+  @@index([facebookPageId, status])
+  @@index([status, createdAt])
+}
+
+model Team {
+  id                     String          @id @default(cuid())
+  name                   String
+  description            String?
+  avatar                 String?
+  status                 TeamStatus      @default(ACTIVE)
+  joinCode               String          @unique
+  joinCodeExpiresAt      DateTime
+  organizationId         String
+  ownerId                String
+  settings               Json?
+  welcomeMessageEnabled  Boolean         @default(true)
+  welcomeMessageTemplate String?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  archivedAt             DateTime?
+  organization           Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner                  User            @relation("TeamOwner", fields: [ownerId], references: [id])
+  activities             TeamActivity[]
+  broadcasts             TeamBroadcast[]
+  invites                TeamInvite[]
+  members                TeamMember[]
+  messages               TeamMessage[]
+  tasks                  TeamTask[]
+  threads                TeamThread[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([joinCode])
+}
+
+model TeamMember {
+  id                   String                 @id @default(cuid())
+  userId               String
+  teamId               String
+  role                 TeamRole               @default(MEMBER)
+  status               TeamMemberStatus       @default(PENDING)
+  lastActiveAt         DateTime?
+  totalTimeSpent       Int                    @default(0)
+  lastLoginAt          DateTime?
+  displayName          String?
+  bio                  String?
+  joinedAt             DateTime               @default(now())
+  suspendedAt          DateTime?
+  suspendedUntil       DateTime?
+  suspendedReason      String?
+  avatar               String?
+  emailNotifications   Boolean                @default(true)
+  notificationsEnabled Boolean                @default(true)
+  taskNotifications    Boolean                @default(true)
+  title                String?
+  activities           TeamActivity[]
+  team                 Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions          TeamMemberPermission[]
+  sentMessages         TeamMessage[]
+  TeamNotification     TeamNotification[]
+  assignedTasks        TeamTask[]             @relation("AssignedTasks")
+  createdTasks         TeamTask[]             @relation("CreatedTasks")
+
+  @@unique([userId, teamId])
+  @@index([teamId, status])
+  @@index([userId])
+}
+
+model TeamMemberPermission {
+  id                   String        @id @default(cuid())
+  memberId             String
+  facebookPageId       String?
+  canViewContacts      Boolean       @default(true)
+  canEditContacts      Boolean       @default(false)
+  canDeleteContacts    Boolean       @default(false)
+  canViewCampaigns     Boolean       @default(true)
+  canCreateCampaigns   Boolean       @default(false)
+  canEditCampaigns     Boolean       @default(false)
+  canDeleteCampaigns   Boolean       @default(false)
+  canSendCampaigns     Boolean       @default(false)
+  canViewConversations Boolean       @default(true)
+  canSendMessages      Boolean       @default(false)
+  canViewPipelines     Boolean       @default(true)
+  canEditPipelines     Boolean       @default(false)
+  canViewTemplates     Boolean       @default(true)
+  canEditTemplates     Boolean       @default(false)
+  canViewAnalytics     Boolean       @default(true)
+  canExportData        Boolean       @default(false)
+  canManageTeam        Boolean       @default(false)
+  customPermissions    Json?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  facebookPage         FacebookPage? @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+  member               TeamMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, facebookPageId])
+  @@index([memberId])
+}
+
+model TeamInvite {
+  id          String            @id @default(cuid())
+  teamId      String
+  code        String            @unique
+  type        InviteType        @default(CODE)
+  inviteLink  String?           @unique
+  expiresAt   DateTime?
+  maxUses     Int?              @default(1)
+  usedCount   Int               @default(0)
+  createdById String
+  status      InviteStatus      @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation(fields: [createdById], references: [id])
+  team        Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  requests    TeamJoinRequest[]
+
+  @@index([teamId, status])
+  @@index([code])
+  @@index([expiresAt])
+}
+
+model TeamJoinRequest {
+  id           String            @id @default(cuid())
+  userId       String
+  inviteId     String
+  status       JoinRequestStatus @default(PENDING)
+  message      String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  createdAt    DateTime          @default(now())
+  invite       TeamInvite        @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  reviewedBy   User?             @relation("ReviewedRequests", fields: [reviewedById], references: [id])
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([inviteId, status])
+}
+
+model TeamActivity {
+  id         String           @id @default(cuid())
+  teamId     String
+  memberId   String?
+  type       TeamActivityType
+  action     String
+  entityType String?
+  entityId   String?
+  entityName String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  duration   Int?
+  createdAt  DateTime         @default(now())
+  member     TeamMember?      @relation(fields: [memberId], references: [id])
+  team       Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, createdAt])
+  @@index([memberId, createdAt])
+  @@index([type, createdAt])
+  @@index([entityType, entityId])
+}
+
+model TeamTask {
+  id                String       @id @default(cuid())
+  teamId            String
+  title             String
+  description       String?
+  priority          TaskPriority @default(MEDIUM)
+  status            TaskStatus   @default(TODO)
+  assignedToId      String?
+  createdById       String
+  relatedEntityType String?
+  relatedEntityId   String?
+  dueDate           DateTime?
+  completedAt       DateTime?
+  tags              String[]
+  attachments       Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  assignedTo        TeamMember?  @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdBy         TeamMember   @relation("CreatedTasks", fields: [createdById], references: [id])
+  team              Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status])
+  @@index([assignedToId, status])
+  @@index([dueDate])
+}
+
+model TeamThread {
+  id             String        @id @default(cuid())
+  teamId         String
+  title          String?
+  type           ThreadType    @default(DISCUSSION)
+  participantIds String[]
+  isPinned       Boolean       @default(false)
+  pinnedAt       DateTime?
+  pinnedById     String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  avatar         String?
+  description    String?
+  enableTopics   Boolean       @default(false)
+  isChannel      Boolean       @default(false)
+  createdById    String?
+  isGroupChat    Boolean       @default(false)
+  groupName      String?
+  groupAvatar    String?
+  isAdminOnly    Boolean       @default(false)
+  messages       TeamMessage[]
+  team           Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  TeamTopic      TeamTopic[]
+
+  @@index([teamId, lastMessageAt])
+  @@index([type])
+  @@index([isChannel])
+}
+
+model TeamMessage {
+  id          String        @id @default(cuid())
+  teamId      String
+  threadId    String?
+  senderId    String
+  content     String
+  mentions    String[]
+  reactions   Json?
+  attachments Json?
+  replyToId   String?
+  isEdited    Boolean       @default(false)
+  editedAt    DateTime?
+  isDeleted   Boolean       @default(false)
+  deletedAt   DateTime?
+  readBy      String[]
+  createdAt   DateTime      @default(now())
+  isPinned    Boolean       @default(false)
+  pinnedAt    DateTime?
+  pinnedById  String?
+  topicId     String?
+  replyTo     TeamMessage?  @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies     TeamMessage[] @relation("MessageReplies")
+  sender      TeamMember    @relation(fields: [senderId], references: [id])
+  team        Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  thread      TeamThread?   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  TeamTopic   TeamTopic?    @relation(fields: [topicId], references: [id])
+
+  @@index([teamId, createdAt])
+  @@index([threadId, createdAt])
+  @@index([senderId])
+  @@index([isPinned])
+  @@index([topicId, createdAt])
+}
+
+model TeamBroadcast {
+  id           String            @id @default(cuid())
+  teamId       String
+  title        String
+  content      String
+  priority     BroadcastPriority @default(NORMAL)
+  senderId     String
+  targetRole   TeamRole?
+  isPinned     Boolean           @default(false)
+  pinnedUntil  DateTime?
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  readBy       String[]
+  attachments  Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  sender       User              @relation(fields: [senderId], references: [id])
+  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, sentAt])
+  @@index([isPinned])
+}
+
+model AIAutomationExecution {
+  id                String           @id
+  ruleId            String
+  userId            String
+  contactId         String
+  conversationId    String?
+  recipientPSID     String
+  recipientName     String?
+  aiPromptUsed      String?
+  generatedMessage  String?
+  aiReasoning       String?
+  previousMessages  Json?
+  status            String           @default("processing")
+  facebookMessageId String?
+  errorMessage      String?
+  followUpNumber    Int              @default(1)
+  executedAt        DateTime         @default(now())
+  createdAt         DateTime         @default(now())
+  Contact           Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  Conversation      Conversation?    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  AIAutomationRule  AIAutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  User              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, createdAt])
+  @@index([ruleId, createdAt])
+  @@index([status])
+}
+
+model AIAutomationRule {
+  id                    String                  @id
+  userId                String
+  name                  String
+  description           String?
+  enabled               Boolean                 @default(true)
+  triggerType           String                  @default("time_based")
+  timeIntervalMinutes   Int?
+  timeIntervalHours     Int?
+  timeIntervalDays      Int?
+  customPrompt          String
+  languageStyle         String                  @default("taglish")
+  facebookPageId        String?
+  includeTags           String[]
+  excludeTags           String[]
+  maxMessagesPerDay     Int                     @default(100)
+  activeHoursStart      Int                     @default(9)
+  activeHoursEnd        Int                     @default(21)
+  run24_7               Boolean                 @default(false)
+  stopOnReply           Boolean                 @default(true)
+  removeTagOnReply      String?
+  messageTag            MessageTag?
+  lastExecutedAt        DateTime?
+  executionCount        Int                     @default(0)
+  successCount          Int                     @default(0)
+  failureCount          Int                     @default(0)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime
+  AIAutomationExecution AIAutomationExecution[]
+  FacebookPage          FacebookPage?           @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+  User                  User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  AIAutomationStop      AIAutomationStop[]
+
+  @@index([enabled, lastExecutedAt])
+  @@index([userId, enabled])
+}
+
+model AIAutomationStop {
+  id               String           @id
+  ruleId           String
+  contactId        String
+  recipientPSID    String
+  stoppedReason    String
+  followUpsSent    Int              @default(0)
+  tagRemoved       String?
+  createdAt        DateTime         @default(now())
+  Contact          Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  AIAutomationRule AIAutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, contactId])
+  @@index([contactId])
+}
+
+model TeamNotification {
+  id         String           @id
+  memberId   String
+  type       NotificationType
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  entityUrl  String?
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  TeamMember TeamMember       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([memberId, isRead, createdAt])
+}
+
+model TeamTopic {
+  id          String        @id
+  threadId    String
+  name        String
+  description String?
+  icon        String?
+  color       String        @default("#64748b")
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime
+  TeamMessage TeamMessage[]
+  TeamThread  TeamThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, order])
 }
 
 enum Role {
@@ -65,109 +761,9 @@ enum Role {
   AGENT
 }
 
-// ============================================
-// FACEBOOK & INSTAGRAM INTEGRATION
-// ============================================
-
-model FacebookPage {
-  id                  String       @id @default(cuid())
-  organizationId      String
-  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  // Facebook Page
-  pageId              String       @unique
-  pageName            String
-  pageAccessToken     String       // Should be encrypted in production
-  
-  // Instagram Business (connected to page)
-  instagramAccountId  String?      @unique
-  instagramUsername   String?
-  
-  // Sync settings
-  autoSync            Boolean      @default(true)
-  syncInterval        Int          @default(3600) // seconds
-  lastSyncedAt        DateTime?
-  
-  // Auto-pipeline assignment settings
-  autoPipelineId      String?
-  autoPipeline        Pipeline?    @relation(fields: [autoPipelineId], references: [id], onDelete: SetNull)
-  autoPipelineMode    AutoPipelineMode @default(SKIP_EXISTING)
-  
-  isActive            Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  
-  contacts            Contact[]
-  conversations       Conversation[]
-  campaigns           Campaign[]
-  teamPermissions     TeamMemberPermission[]
-}
-
 enum AutoPipelineMode {
-  SKIP_EXISTING     // Only assign new contacts without pipeline
-  UPDATE_EXISTING   // Re-evaluate and update all contacts
-}
-
-// ============================================
-// CONTACTS & TAGS
-// ============================================
-
-model Contact {
-  id             String       @id @default(cuid())
-  
-  // Platform identifiers
-  messengerPSID  String?      // Page-Scoped ID for Messenger
-  instagramSID   String?      // Instagram-Scoped ID
-  
-  // Contact info from Graph API
-  firstName      String
-  lastName       String?
-  profilePicUrl  String?
-  locale         String?
-  timezone       Int?
-  
-  // Which platforms they're on
-  hasMessenger   Boolean      @default(false)
-  hasInstagram   Boolean      @default(false)
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  facebookPageId String
-  facebookPage   FacebookPage @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
-  
-  // Pipeline tracking
-  pipelineId     String?
-  pipeline       Pipeline?    @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
-  
-  stageId        String?
-  stage          PipelineStage? @relation(fields: [stageId], references: [id], onDelete: SetNull)
-  
-  stageEnteredAt DateTime?
-  
-  // Lead scoring
-  leadScore      Int          @default(0)
-  leadStatus     LeadStatus   @default(NEW)
-  
-  tags           String[]
-  notes          String?      @db.Text
-  aiContext      String?      @db.Text
-  aiContextUpdatedAt DateTime?
-  lastInteraction DateTime?
-  
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  
-  groups         ContactGroup[]
-  messages       Message[]
-  conversations  Conversation[]
-  activities     ContactActivity[]
-  
-  @@unique([messengerPSID, facebookPageId])
-  @@index([instagramSID])
-  @@index([pipelineId, stageId])
-  @@index([leadStatus])
-  @@index([organizationId])
+  SKIP_EXISTING
+  UPDATE_EXISTING
 }
 
 enum LeadStatus {
@@ -181,85 +777,6 @@ enum LeadStatus {
   UNRESPONSIVE
 }
 
-model Tag {
-  id             String   @id @default(cuid())
-  name           String
-  description    String?
-  color          String   @default("#64748b")
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  contactCount   Int      @default(0)
-  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  
-  @@unique([organizationId, name])
-  @@index([organizationId])
-}
-
-model ContactGroup {
-  id          String    @id @default(cuid())
-  name        String
-  description String?
-  color       String?
-  contacts    Contact[]
-  campaigns   Campaign[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-}
-
-// ============================================
-// PIPELINE SYSTEM
-// ============================================
-
-model Pipeline {
-  id             String   @id @default(cuid())
-  name           String
-  description    String?
-  color          String   @default("#3b82f6")
-  icon           String?
-  isDefault      Boolean  @default(false)
-  isArchived     Boolean  @default(false)
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  stages         PipelineStage[]
-  contacts       Contact[]
-  automations    PipelineAutomation[]
-  facebookPages  FacebookPage[]
-  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  
-  @@index([organizationId, isArchived])
-}
-
-model PipelineStage {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  color       String   @default("#64748b")
-  order       Int
-  
-  type        StageType @default(IN_PROGRESS)
-  
-  pipelineId  String
-  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  
-  contacts    Contact[]
-  activities  ContactActivity[] @relation("toStage")
-  fromActivities ContactActivity[] @relation("fromStage")
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@unique([pipelineId, order])
-  @@index([pipelineId])
-}
-
 enum StageType {
   LEAD
   IN_PROGRESS
@@ -268,38 +785,12 @@ enum StageType {
   ARCHIVED
 }
 
-model ContactActivity {
-  id          String   @id @default(cuid())
-  
-  contactId   String
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  type        ActivityType
-  
-  title       String
-  description String?
-  metadata    Json?
-  
-  fromStageId String?
-  fromStage   PipelineStage? @relation(fields: [fromStageId], references: [id], name: "fromStage", onDelete: SetNull)
-  
-  toStageId   String?
-  toStage     PipelineStage? @relation(fields: [toStageId], references: [id], name: "toStage", onDelete: SetNull)
-  
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  
-  createdAt   DateTime @default(now())
-  
-  @@index([contactId, createdAt])
-  @@index([type])
-}
-
 enum ActivityType {
   NOTE_ADDED
   STAGE_CHANGED
   STATUS_CHANGED
   TAG_ADDED
+  TAG_REMOVED
   MESSAGE_SENT
   MESSAGE_RECEIVED
   CAMPAIGN_SENT
@@ -309,29 +800,6 @@ enum ActivityType {
   EMAIL_SENT
 }
 
-model PipelineAutomation {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-  
-  pipelineId  String
-  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  
-  triggerType AutomationTrigger
-  triggerConditions Json
-  
-  actions     Json
-  
-  timesTriggered Int    @default(0)
-  lastTriggeredAt DateTime?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([pipelineId, isActive])
-}
-
 enum AutomationTrigger {
   STAGE_ENTERED
   STAGE_DURATION
@@ -339,60 +807,6 @@ enum AutomationTrigger {
   NO_ACTIVITY
   TAG_ADDED
   LEAD_SCORE_REACHED
-}
-
-// ============================================
-// CAMPAIGNS & TEMPLATES
-// ============================================
-
-model Campaign {
-  id             String       @id @default(cuid())
-  name           String
-  description    String?
-  status         CampaignStatus @default(DRAFT)
-  
-  platform       Platform
-  messageTag     MessageTag?
-  
-  facebookPageId String
-  facebookPage   FacebookPage @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
-  
-  scheduledAt    DateTime?
-  startedAt      DateTime?
-  completedAt    DateTime?
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  createdById    String
-  createdBy      User         @relation(fields: [createdById], references: [id])
-  
-  templateId     String?
-  template       Template?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  
-  targetingType  TargetingType @default(CONTACT_GROUPS)
-  
-  groups         ContactGroup[]
-  targetContactIds String[]
-  targetTags     String[]
-  targetStageIds String[]
-  targetFilters  Json?
-  
-  rateLimit      Int          @default(3600) // 1 message per second (3600/hour) - was 100 which caused 36 second delays
-  
-  totalRecipients Int         @default(0)
-  sentCount       Int         @default(0)
-  deliveredCount  Int         @default(0)
-  readCount       Int         @default(0)
-  failedCount     Int         @default(0)
-  repliedCount    Int         @default(0)
-  
-  messages       Message[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  
-  @@index([status, platform])
-  @@index([organizationId])
 }
 
 enum CampaignStatus {
@@ -426,92 +840,11 @@ enum MessageTag {
   HUMAN_AGENT
 }
 
-model Template {
-  id             String       @id @default(cuid())
-  name           String
-  content        String       @db.Text
-  variables      String[]
-  platform       Platform
-  category       String?
-  
-  recommendedTag MessageTag?
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  campaigns      Campaign[]
-  usageCount     Int          @default(0)
-  
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-}
-
-// ============================================
-// MESSAGES & CONVERSATIONS
-// ============================================
-
-model Conversation {
-  id             String              @id @default(cuid())
-  
-  contactId      String
-  contact        Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  facebookPageId String
-  facebookPage   FacebookPage        @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
-  
-  platform       Platform
-  status         ConversationStatus  @default(OPEN)
-  lastMessageAt  DateTime
-  
-  assignedToId   String?
-  assignedTo     User?               @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
-  
-  messages       Message[]
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  
-  @@index([status, platform])
-  @@index([lastMessageAt])
-}
-
 enum ConversationStatus {
   OPEN
   PENDING
   RESOLVED
   ARCHIVED
-}
-
-model Message {
-  id          String        @id @default(cuid())
-  content     String        @db.Text
-  platform    Platform
-  status      MessageStatus @default(PENDING)
-  
-  messageTag  MessageTag?
-  
-  facebookMessageId String?
-  
-  contactId   String
-  contact     Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  conversationId String?
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  
-  campaignId  String?
-  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  
-  isFromBusiness Boolean    @default(true)
-  
-  sentAt      DateTime?
-  deliveredAt DateTime?
-  readAt      DateTime?
-  failedAt    DateTime?
-  errorMessage String?
-  
-  createdAt   DateTime      @default(now())
-  
-  @@index([campaignId, status])
-  @@index([conversationId, createdAt])
 }
 
 enum MessageStatus {
@@ -523,46 +856,6 @@ enum MessageStatus {
   FAILED
 }
 
-// ============================================
-// WEBHOOK EVENTS
-// ============================================
-
-model WebhookEvent {
-  id         String   @id @default(cuid())
-  platform   Platform
-  eventType  String
-  payload    Json
-  processed  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  
-  @@index([processed, createdAt])
-}
-
-// ============================================
-// SYNC JOBS
-// ============================================
-
-model SyncJob {
-  id             String    @id @default(cuid())
-  facebookPageId String
-  status         SyncJobStatus @default(PENDING)
-  
-  totalContacts  Int       @default(0)
-  syncedContacts Int       @default(0)
-  failedContacts Int       @default(0)
-  
-  errors         Json?
-  tokenExpired   Boolean   @default(false)
-  
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  
-  @@index([facebookPageId, status])
-  @@index([status, createdAt])
-}
-
 enum SyncJobStatus {
   PENDING
   IN_PROGRESS
@@ -571,90 +864,11 @@ enum SyncJobStatus {
   CANCELLED
 }
 
-// ============================================
-// TEAM MANAGEMENT SYSTEM
-// ============================================
-
-model Team {
-  id          String      @id @default(cuid())
-  name        String
-  description String?
-  avatar      String?
-  status      TeamStatus  @default(ACTIVE)
-  
-  // Auto-rotating join code (changes every 10 minutes)
-  joinCode    String      @unique
-  joinCodeExpiresAt DateTime
-  
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
-  ownerId     String
-  owner       User        @relation("TeamOwner", fields: [ownerId], references: [id])
-  
-  settings    Json?       // Team-wide settings
-  
-  members     TeamMember[]
-  invites     TeamInvite[]
-  activities  TeamActivity[]
-  tasks       TeamTask[]
-  messages    TeamMessage[]
-  threads     TeamThread[]
-  broadcasts  TeamBroadcast[]
-  
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  archivedAt  DateTime?
-  
-  @@index([organizationId])
-  @@index([status])
-  @@index([joinCode])
-}
-
 enum TeamStatus {
   ACTIVE
   PENDING_APPROVAL
   SUSPENDED
   ARCHIVED
-}
-
-model TeamMember {
-  id          String   @id @default(cuid())
-  
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  role        TeamRole @default(MEMBER)
-  status      TeamMemberStatus @default(PENDING)
-  
-  // Activity tracking
-  lastActiveAt DateTime?
-  totalTimeSpent Int   @default(0) // in seconds
-  lastLoginAt    DateTime?
-  
-  // Permissions
-  permissions    TeamMemberPermission[]
-  
-  // Profile in team context
-  displayName    String?
-  bio            String?
-  
-  joinedAt    DateTime  @default(now())
-  suspendedAt DateTime?
-  suspendedUntil DateTime?
-  suspendedReason String?
-  
-  activities  TeamActivity[]
-  assignedTasks TeamTask[] @relation("AssignedTasks")
-  createdTasks  TeamTask[] @relation("CreatedTasks")
-  sentMessages  TeamMessage[]
-  
-  @@unique([userId, teamId])
-  @@index([teamId, status])
-  @@index([userId])
 }
 
 enum TeamRole {
@@ -671,84 +885,6 @@ enum TeamMemberStatus {
   REMOVED
 }
 
-model TeamMemberPermission {
-  id          String   @id @default(cuid())
-  
-  memberId    String
-  member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  
-  // Facebook Page access
-  facebookPageId String?
-  facebookPage   FacebookPage? @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
-  
-  // Feature permissions
-  canViewContacts      Boolean @default(true)
-  canEditContacts      Boolean @default(false)
-  canDeleteContacts    Boolean @default(false)
-  
-  canViewCampaigns     Boolean @default(true)
-  canCreateCampaigns   Boolean @default(false)
-  canEditCampaigns     Boolean @default(false)
-  canDeleteCampaigns   Boolean @default(false)
-  canSendCampaigns     Boolean @default(false)
-  
-  canViewConversations Boolean @default(true)
-  canSendMessages      Boolean @default(false)
-  
-  canViewPipelines     Boolean @default(true)
-  canEditPipelines     Boolean @default(false)
-  
-  canViewTemplates     Boolean @default(true)
-  canEditTemplates     Boolean @default(false)
-  
-  canViewAnalytics     Boolean @default(true)
-  canExportData        Boolean @default(false)
-  
-  canManageTeam        Boolean @default(false)
-  
-  customPermissions Json?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@unique([memberId, facebookPageId])
-  @@index([memberId])
-}
-
-model TeamInvite {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  code        String   @unique
-  type        InviteType @default(CODE)
-  
-  // For link invites
-  inviteLink  String?  @unique
-  
-  // Expiration
-  expiresAt   DateTime?
-  maxUses     Int?     @default(1)
-  usedCount   Int      @default(0)
-  
-  // Who created the invite
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id])
-  
-  status      InviteStatus @default(ACTIVE)
-  
-  // Pending requests
-  requests    TeamJoinRequest[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([teamId, status])
-  @@index([code])
-  @@index([expiresAt])
-}
-
 enum InviteType {
   CODE
   LINK
@@ -762,68 +898,11 @@ enum InviteStatus {
   EXHAUSTED
 }
 
-model TeamJoinRequest {
-  id          String   @id @default(cuid())
-  
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  inviteId    String
-  invite      TeamInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
-  
-  status      JoinRequestStatus @default(PENDING)
-  
-  message     String?  // Optional message from user
-  
-  reviewedById String?
-  reviewedBy   User?   @relation("ReviewedRequests", fields: [reviewedById], references: [id])
-  reviewedAt   DateTime?
-  reviewNotes  String?
-  
-  createdAt   DateTime @default(now())
-  
-  @@index([userId])
-  @@index([inviteId, status])
-}
-
 enum JoinRequestStatus {
   PENDING
   APPROVED
   REJECTED
   CANCELLED
-}
-
-model TeamActivity {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  memberId    String?
-  member      TeamMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  
-  type        TeamActivityType
-  action      String   // Human-readable action
-  
-  // What was affected
-  entityType  String?  // "contact", "campaign", "message", etc.
-  entityId    String?
-  entityName  String?
-  
-  // Additional data
-  metadata    Json?
-  
-  // Tracking
-  ipAddress   String?
-  userAgent   String?
-  duration    Int?     // Time spent on action (seconds)
-  
-  createdAt   DateTime @default(now())
-  
-  @@index([teamId, createdAt])
-  @@index([memberId, createdAt])
-  @@index([type, createdAt])
-  @@index([entityType, entityId])
 }
 
 enum TeamActivityType {
@@ -844,41 +923,6 @@ enum TeamActivityType {
   SETTINGS_CHANGED
 }
 
-model TeamTask {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  title       String
-  description String?  @db.Text
-  priority    TaskPriority @default(MEDIUM)
-  status      TaskStatus @default(TODO)
-  
-  assignedToId String?
-  assignedTo   TeamMember? @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
-  
-  createdById  String
-  createdBy    TeamMember @relation("CreatedTasks", fields: [createdById], references: [id])
-  
-  // Related entities
-  relatedEntityType String?
-  relatedEntityId   String?
-  
-  dueDate     DateTime?
-  completedAt DateTime?
-  
-  tags        String[]
-  attachments Json?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([teamId, status])
-  @@index([assignedToId, status])
-  @@index([dueDate])
-}
-
 enum TaskPriority {
   LOW
   MEDIUM
@@ -894,116 +938,12 @@ enum TaskStatus {
   CANCELLED
 }
 
-model TeamThread {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  title       String?
-  type        ThreadType @default(DISCUSSION)
-  
-  // Group chat participants
-  participantIds String[]
-  
-  isPinned    Boolean  @default(false)
-  pinnedAt    DateTime?
-  pinnedById  String?
-  
-  messages    TeamMessage[]
-  
-  lastMessageAt DateTime?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([teamId, lastMessageAt])
-  @@index([type])
-}
-
 enum ThreadType {
   DIRECT
   GROUP
   DISCUSSION
   ANNOUNCEMENT
-}
-
-model TeamMessage {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  threadId    String?
-  thread      TeamThread? @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  
-  senderId    String
-  sender      TeamMember @relation(fields: [senderId], references: [id])
-  
-  content     String   @db.Text
-  
-  // Mentions
-  mentions    String[] // Member IDs
-  
-  // Reactions
-  reactions   Json?    // {emoji: [memberIds]}
-  
-  // Attachments
-  attachments Json?
-  
-  // Reply thread
-  replyToId   String?
-  replyTo     TeamMessage? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies     TeamMessage[] @relation("MessageReplies")
-  
-  isEdited    Boolean  @default(false)
-  editedAt    DateTime?
-  
-  isDeleted   Boolean  @default(false)
-  deletedAt   DateTime?
-  
-  // Read receipts
-  readBy      String[] // Member IDs who have read
-  
-  createdAt   DateTime @default(now())
-  
-  @@index([teamId, createdAt])
-  @@index([threadId, createdAt])
-  @@index([senderId])
-}
-
-model TeamBroadcast {
-  id          String   @id @default(cuid())
-  
-  teamId      String
-  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  title       String
-  content     String   @db.Text
-  priority    BroadcastPriority @default(NORMAL)
-  
-  senderId    String
-  sender      User     @relation(fields: [senderId], references: [id])
-  
-  targetRole  TeamRole? // If null, send to all
-  
-  isPinned    Boolean  @default(false)
-  pinnedUntil DateTime?
-  
-  // Scheduling
-  scheduledFor DateTime?
-  sentAt       DateTime?
-  
-  // Tracking
-  readBy      String[] // User IDs
-  
-  attachments Json?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([teamId, sentAt])
-  @@index([isPinned])
+  CHANNEL
 }
 
 enum BroadcastPriority {
@@ -1013,3 +953,18 @@ enum BroadcastPriority {
   URGENT
 }
 
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_UPDATED
+  TASK_COMPLETED
+  TASK_DUE_SOON
+  MESSAGE_MENTION
+  MESSAGE_REPLY
+  BROADCAST_MESSAGE
+  TEAM_INVITE
+  MEMBER_JOINED
+  MEMBER_LEFT
+  ROLE_CHANGED
+  PERMISSION_CHANGED
+  TEAM_ANNOUNCEMENT
+}

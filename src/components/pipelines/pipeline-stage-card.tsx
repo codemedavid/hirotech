@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -45,7 +46,7 @@ interface PipelineStageCardProps {
   onPageChange: (page: number) => void;
 }
 
-export function PipelineStageCard({
+export const PipelineStageCard = memo(function PipelineStageCard({
   stage,
   isSelected,
   selectedContacts,
@@ -203,5 +204,5 @@ export function PipelineStageCard({
       </Card>
     </div>
   );
-}
+});
 

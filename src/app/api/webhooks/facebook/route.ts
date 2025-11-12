@@ -2,6 +2,127 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 
+// Webhook event types
+interface WebhookMessage {
+  mid: string;
+  text?: string;
+  attachments?: Array<{ type: string; payload: { url?: string } }>;
+}
+
+interface WebhookEvent {
+  sender: { id: string };
+  recipient: { id: string };
+  timestamp: number;
+  message?: WebhookMessage;
+  read?: { watermark: number };
+  delivery?: { mids: string[]; watermark: number };
+  postback?: { title: string; payload: string };
+}
+
+// ⭐ AI AUTOMATION: Handle automation stops when user replies
+async function handleAutomationStop(contactId: string, senderPSID: string) {
+  try {
+    // Find all active automation rules that have stopOnReply enabled
+    const activeRules = await prisma.aIAutomationRule.findMany({
+      where: {
+        enabled: true,
+        stopOnReply: true,
+      },
+    });
+
+    if (activeRules.length === 0) {
+      return;
+    }
+
+    // Check if any of these rules have sent messages to this contact
+    const executions = await prisma.aIAutomationExecution.findMany({
+      where: {
+        contactId,
+        ruleId: { in: activeRules.map(r => r.id) },
+        status: 'sent',
+      },
+      distinct: ['ruleId'],
+      orderBy: {
+        executedAt: 'desc',
+      },
+    });
+
+    if (executions.length === 0) {
+      return;
+    }
+
+    console.log(`[Webhook] Contact ${contactId} replied - stopping ${executions.length} automation rules`);
+
+    // Create stop records for each rule (prevents duplicates with unique constraint)
+    for (const execution of executions) {
+      try {
+        const rule = activeRules.find(r => r.id === execution.ruleId);
+        if (!rule) continue;
+
+        // Check if stop record already exists
+        const existingStop = await prisma.aIAutomationStop.findUnique({
+          where: {
+            ruleId_contactId: {
+              ruleId: rule.id,
+              contactId,
+            },
+          },
+        });
+
+        if (existingStop) {
+          console.log(`[Webhook] Stop record already exists for rule ${rule.id} and contact ${contactId}`);
+          continue;
+        }
+
+        // Create stop record
+        const stop = await prisma.aIAutomationStop.create({
+          data: {
+            id: `stop_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            ruleId: rule.id,
+            contactId,
+            recipientPSID: senderPSID,
+            stoppedReason: 'User replied to automated message',
+            followUpsSent: 1, // At least one was sent
+          },
+        });
+
+        console.log(`[Webhook] Created stop record for rule ${rule.name} (${rule.id})`);
+
+        // Remove tag if configured
+        if (rule.removeTagOnReply) {
+          const contact = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { tags: true },
+          });
+
+          if (contact && contact.tags.includes(rule.removeTagOnReply)) {
+            await prisma.contact.update({
+              where: { id: contactId },
+              data: {
+                tags: contact.tags.filter(tag => tag !== rule.removeTagOnReply),
+              },
+            });
+
+            // Update stop record with removed tag
+            await prisma.aIAutomationStop.update({
+              where: { id: stop.id },
+              data: {
+                tagRemoved: rule.removeTagOnReply,
+              },
+            });
+
+            console.log(`[Webhook] Removed tag "${rule.removeTagOnReply}" from contact ${contactId}`);
+          }
+        }
+      } catch (error) {
+        console.error(`[Webhook] Error creating stop record for rule ${execution.ruleId}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('[Webhook] Error handling automation stop:', error);
+  }
+}
+
 // Webhook verification
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -77,7 +198,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
-async function handleIncomingMessage(event: any) {
+async function handleIncomingMessage(event: WebhookEvent) {
   try {
     const senderId = event.sender.id;
     const recipientId = event.recipient.id;
@@ -172,10 +293,10 @@ async function handleIncomingMessage(event: any) {
     // Save message
     await prisma.message.create({
       data: {
-        content: message.text || '[Media]',
+        content: message?.text || '[Media]',
         platform: 'MESSENGER',
         status: 'DELIVERED',
-        facebookMessageId: message.mid,
+        facebookMessageId: message?.mid,
         contactId: contact.id,
         conversationId: conversation.id,
         isFromBusiness: false,
@@ -204,16 +325,20 @@ async function handleIncomingMessage(event: any) {
         contactId: contact.id,
         type: 'MESSAGE_RECEIVED',
         title: 'Message received',
-        description: message.text?.substring(0, 100),
+        description: message?.text?.substring(0, 100),
       },
     });
+
+    // ⭐ AI AUTOMATION: Stop automations when user replies
+    await handleAutomationStop(contact.id, senderId);
   } catch (error) {
     console.error('Error handling incoming message:', error);
   }
 }
 
-async function handleDeliveryReceipt(event: any) {
+async function handleDeliveryReceipt(event: WebhookEvent) {
   try {
+    if (!event.delivery) return;
     const mids = event.delivery.mids || [];
 
     await prisma.message.updateMany({
@@ -230,8 +355,9 @@ async function handleDeliveryReceipt(event: any) {
   }
 }
 
-async function handleReadReceipt(event: any) {
+async function handleReadReceipt(event: WebhookEvent) {
   try {
+    if (!event.read) return;
     const senderId = event.sender.id;
 
     // Find contact
@@ -259,7 +385,7 @@ async function handleReadReceipt(event: any) {
   }
 }
 
-async function handleInstagramMessage(value: any) {
+async function handleInstagramMessage(value: WebhookEvent) {
   try {
     const senderId = value.sender?.id;
     const recipientId = value.recipient?.id;
@@ -356,10 +482,10 @@ async function handleInstagramMessage(value: any) {
     // Save message
     await prisma.message.create({
       data: {
-        content: message.text || '[Media]',
+        content: message?.text || '[Media]',
         platform: 'INSTAGRAM',
         status: 'DELIVERED',
-        facebookMessageId: message.mid,
+        facebookMessageId: message?.mid,
         contactId: contact.id,
         conversationId: conversation.id,
         isFromBusiness: false,
@@ -388,9 +514,12 @@ async function handleInstagramMessage(value: any) {
         contactId: contact.id,
         type: 'MESSAGE_RECEIVED',
         title: 'Instagram message received',
-        description: message.text?.substring(0, 100),
+        description: message?.text?.substring(0, 100),
       },
     });
+
+    // ⭐ AI AUTOMATION: Stop automations when user replies
+    await handleAutomationStop(contact.id, senderId);
   } catch (error) {
     console.error('Error handling Instagram message:', error);
   }

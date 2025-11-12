@@ -42,12 +42,49 @@ export async function GET(
       }),
     };
 
+    // Get sort parameter (default to leadScore)
+    const sortBy = searchParams.get('sort') || 'leadScore';
+    const sortOrder = searchParams.get('order') || 'desc';
+
+    // Determine orderBy based on sort parameter
+    let orderBy: any;
+    switch (sortBy) {
+      case 'leadScore':
+        // Primary sort by lead score (highest first), secondary by stage entry time
+        orderBy = [
+          { leadScore: sortOrder as 'asc' | 'desc' },
+          { stageEnteredAt: 'desc' as const }
+        ];
+        break;
+      case 'stageEnteredAt':
+        orderBy = { stageEnteredAt: sortOrder as 'asc' | 'desc' };
+        break;
+      case 'name':
+        orderBy = { firstName: sortOrder as 'asc' | 'desc' };
+        break;
+      default:
+        orderBy = [
+          { leadScore: 'desc' as const },
+          { stageEnteredAt: 'desc' as const }
+        ];
+    }
+
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({
         where,
         take: limit,
         skip: (page - 1) * limit,
-        orderBy: { stageEnteredAt: 'desc' },
+        orderBy,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePicUrl: true,
+          leadScore: true,
+          leadStatus: true,
+          tags: true,
+          stageEnteredAt: true,
+        },
       }),
       prisma.contact.count({ where }),
     ]);

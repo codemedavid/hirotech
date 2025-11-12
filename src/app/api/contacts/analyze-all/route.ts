@@ -9,8 +9,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const organizationId = (session.user as any).organizationId;
-    const body = await req.json();
+    const organizationId = session.user.organizationId;
+    const body = await req.json() as { limit?: number; skipIfHasContext?: boolean };
     const { limit = 100, skipIfHasContext = true } = body;
 
     const result = await analyzeExistingContacts({
@@ -20,10 +20,11 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API] Analyze contacts error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to analyze contacts';
     return NextResponse.json(
-      { error: error.message || 'Failed to analyze contacts' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

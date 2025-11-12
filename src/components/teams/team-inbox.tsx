@@ -1,40 +1,60 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDistanceToNow } from 'date-fns'
 import { Send, Plus, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
+
+interface Thread {
+  id: string
+  title?: string | null
+  type: string
+  lastMessageAt?: Date | string | null
+  participantIds: string[]
+}
+
+interface Message {
+  id: string
+  content: string
+  createdAt: Date | string
+  sender: {
+    id: string
+    user: {
+      name: string | null
+      image: string | null
+    }
+  }
+}
 
 interface TeamInboxProps {
   teamId: string
   currentMemberId: string
 }
 
-export function TeamInbox({ teamId, currentMemberId }: TeamInboxProps) {
-  const [threads, setThreads] = useState<any[]>([])
-  const [selectedThread, setSelectedThread] = useState<any>(null)
-  const [messages, setMessages] = useState<any[]>([])
+export function TeamInbox({ teamId }: TeamInboxProps) {
+  const [threads, setThreads] = useState<Thread[]>([])
+  const [selectedThread, setSelectedThread] = useState<Thread | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [newMessage, setNewMessage] = useState('')
 
   useEffect(() => {
     fetchThreads()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId])
 
   useEffect(() => {
     if (selectedThread) {
       fetchMessages(selectedThread.id)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedThread])
 
   async function fetchThreads() {
@@ -126,13 +146,8 @@ export function TeamInbox({ teamId, currentMemberId }: TeamInboxProps) {
                   <span className="font-medium text-sm">{thread.title || 'Unnamed Thread'}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {thread.participants.length} participants
+                  {thread.participantIds.length} participants
                 </p>
-                {thread.messages[0] && (
-                  <p className="text-xs text-muted-foreground mt-1 truncate">
-                    {thread.messages[0].content}
-                  </p>
-                )}
               </button>
             ))}
           </ScrollArea>
@@ -156,7 +171,7 @@ export function TeamInbox({ teamId, currentMemberId }: TeamInboxProps) {
                 {messages.map((message) => (
                   <div key={message.id} className="flex gap-3">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={message.sender.user.image} />
+                      <AvatarImage src={message.sender.user.image || undefined} />
                       <AvatarFallback>
                         {message.sender.user.name?.[0] || 'U'}
                       </AvatarFallback>

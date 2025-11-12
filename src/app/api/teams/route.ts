@@ -4,12 +4,13 @@ import { prisma } from '@/lib/db'
 import { generateUniqueJoinCode, getJoinCodeExpiration } from '@/lib/teams/join-codes'
 import { createDefaultPermissions } from '@/lib/teams/permissions'
 import { logActivity } from '@/lib/teams/activity'
+import { createDefaultTeamThreads } from '@/lib/teams/auto-create-threads'
 
 /**
  * GET /api/teams
  * Get all teams for the current user
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
     if (!session?.user?.id) {
@@ -140,6 +141,9 @@ export async function POST(request: NextRequest) {
 
     // Create default permissions for owner
     await createDefaultPermissions(member.id, 'OWNER')
+
+    // Create default team threads (General Discussion, etc.)
+    await createDefaultTeamThreads(team.id)
 
     // Log activity
     await logActivity({

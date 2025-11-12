@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { validateContactIds } from '@/lib/pipelines/validation';
 
 export async function POST(
   request: NextRequest,
@@ -20,9 +21,18 @@ export async function POST(
 
     const { contactIds, targetStageId } = body;
 
-    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+    // Validate contact IDs
+    const validation = validateContactIds(contactIds);
+    if (!validation.valid) {
       return NextResponse.json(
-        { error: 'contactIds must be a non-empty array' },
+        { error: validation.errors.join(', ') },
+        { status: 400 }
+      );
+    }
+
+    if (!targetStageId || typeof targetStageId !== 'string') {
+      return NextResponse.json(
+        { error: 'targetStageId is required and must be a string' },
         { status: 400 }
       );
     }

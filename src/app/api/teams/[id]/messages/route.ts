@@ -38,7 +38,11 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const where: any = { teamId: id, isDeleted: false }
+    const where: {
+      teamId: string;
+      isDeleted: boolean;
+      threadId?: string;
+    } = { teamId: id, isDeleted: false }
     if (threadId) where.threadId = threadId
 
     const [messages, total] = await Promise.all([
@@ -122,6 +126,15 @@ export async function POST(
     const member = await prisma.teamMember.findUnique({
       where: {
         userId_teamId: { userId: session.user.id, teamId: id }
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
       }
     })
 
@@ -189,7 +202,42 @@ export async function POST(
       metadata: { messageId: message.id, threadId }
     })
 
-    // TODO: Send notifications to mentioned users
+    // Send notifications to mentioned users
+    if (mentions && mentions.length > 0) {
+      const { notifyMentioned } = await import('@/lib/teams/notifications')
+      const senderName = member.user?.name || member.user?.email || 'Someone'
+      
+      await notifyMentioned({
+        messageId: message.id,
+        threadId: message.threadId || '',
+        mentionedMemberIds: mentions,
+        senderName,
+        messagePreview: content,
+        teamId: id
+      }).catch(err => console.error('Failed to send mention notifications:', err))
+    }
+
+    // Send reply notification
+    if (replyToId) {
+      const originalMessage = await prisma.teamMessage.findUnique({
+        where: { id: replyToId },
+        select: { senderId: true }
+      })
+
+      if (originalMessage && originalMessage.senderId !== member.id) {
+        const { notifyMessageReply } = await import('@/lib/teams/notifications')
+        const replierName = member.user?.name || member.user?.email || 'Someone'
+        
+        await notifyMessageReply({
+          messageId: message.id,
+          threadId: message.threadId || '',
+          originalAuthorId: originalMessage.senderId,
+          replierName,
+          replyPreview: content,
+          teamId: id
+        }).catch(err => console.error('Failed to send reply notification:', err))
+      }
+    }
 
     return NextResponse.json({ message }, { status: 201 })
   } catch (error) {

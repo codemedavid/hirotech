@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { FacebookClient, FacebookApiError } from './client';
-import { analyzeConversation, analyzeConversationWithStageRecommendation } from '@/lib/ai/google-ai-service';
+import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
 import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
+import { applyStageScoreRanges } from '@/lib/pipelines/stage-analyzer';
 
 interface BackgroundSyncResult {
   success: boolean;
@@ -106,9 +107,36 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
     let failedCount = 0;
     
     console.log(`[Background Sync ${jobId}] Auto-Pipeline Enabled:`, !!page.autoPipelineId);
-    if (page.autoPipelineId) {
-      console.log(`[Background Sync ${jobId}] Target Pipeline:`, page.autoPipeline?.name);
+    if (page.autoPipelineId && page.autoPipeline) {
+      console.log(`[Background Sync ${jobId}] Target Pipeline:`, page.autoPipeline.name);
       console.log(`[Background Sync ${jobId}] Mode:`, page.autoPipelineMode);
+      
+      // Auto-generate score ranges if stages still have defaults
+      const hasDefaultRanges = page.autoPipeline.stages.some(
+        s => s.leadScoreMin === 0 && s.leadScoreMax === 100
+      );
+
+      if (hasDefaultRanges) {
+        console.log(`[Background Sync ${jobId}] Detected default score ranges, auto-generating intelligent ranges...`);
+        await applyStageScoreRanges(page.autoPipelineId);
+        console.log(`[Background Sync ${jobId}] Score ranges applied successfully`);
+        
+        // Reload page with updated ranges
+        const updatedPage = await prisma.facebookPage.findUnique({
+          where: { id: page.id },
+          include: {
+            autoPipeline: {
+              include: {
+                stages: { orderBy: { order: 'asc' } }
+              }
+            }
+          }
+        });
+        
+        if (updatedPage?.autoPipeline) {
+          page.autoPipeline = updatedPage.autoPipeline;
+        }
+      }
     }
     let tokenExpired = false;
     const errors: Array<{ platform: string; id: string; error: string; code?: number }> = [];
@@ -132,12 +160,16 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
           if (participant.id === page.pageId) continue; // Skip page itself
 
           try {
+            // Fetch ALL messages for comprehensive analysis
+            console.log(`[Background Sync ${jobId}] Fetching all messages for conversation ${convo.id}...`);
+            const allMessages = await client.getAllMessagesForConversation(convo.id);
+            
             // Extract name from conversation messages
             let firstName = `User ${participant.id.slice(-6)}`;
             let lastName: string | null = null;
 
-            if (convo.messages?.data) {
-              const userMessage = convo.messages.data.find(
+            if (allMessages && allMessages.length > 0) {
+              const userMessage = allMessages.find(
                 (msg: { from?: { id?: string } }) => msg.from?.id === participant.id
               );
 
@@ -155,31 +187,45 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
             let aiContext: string | null = null;
             let aiAnalysis = null;
             
-            if (convo.messages?.data && convo.messages.data.length > 0) {
+            if (allMessages && allMessages.length > 0) {
               try {
-                const messagesToAnalyze = convo.messages.data
+                console.log(`[Background Sync ${jobId}] Processing ${allMessages.length} messages for analysis`);
+                
+                const messagesToAnalyze = allMessages
                   .filter((msg: any) => msg.message)
                   .map((msg: any) => ({
                     from: msg.from?.name || msg.from?.id || 'Unknown',
                     text: msg.message,
-                  }));
+                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined
+                  }))
+                  .reverse(); // Oldest first for chronological analysis
 
                 if (messagesToAnalyze.length > 0) {
-                  // If auto-pipeline is enabled, get full analysis
-                  if (page.autoPipelineId && page.autoPipeline) {
-                    aiAnalysis = await analyzeConversationWithStageRecommendation(
-                      messagesToAnalyze,
-                      page.autoPipeline.stages
-                    );
-                    aiContext = aiAnalysis?.summary || null;
+                  // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
+                  console.log(`[Background Sync ${jobId}] Analyzing full conversation with enhanced fallback...`);
+                  
+                  const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
+                    messagesToAnalyze,
+                    page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
+                    new Date(convo.updated_time)
+                  );
+                  
+                  aiAnalysis = analysis;
+                  aiContext = analysis.summary;
+                  
+                  if (usedFallback) {
+                    console.warn(`[Background Sync ${jobId}] Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
                   } else {
-                    // Otherwise just get summary
-                    aiContext = await analyzeConversation(messagesToAnalyze);
+                    console.log(`[Background Sync ${jobId}] AI Analysis successful:`, {
+                      stage: analysis.recommendedStage,
+                      score: analysis.leadScore,
+                      status: analysis.leadStatus,
+                      confidence: analysis.confidence
+                    });
                   }
                   
-                  // Always add delay after analysis attempt (success or failure)
-                  // This ensures we don't hit rate limits on the next contact
-                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  // Rate limit delay (shorter since retries are built-in)
+                  await new Promise(resolve => setTimeout(resolve, 500));
                 }
               } catch (error) {
                 console.error(`[Background Sync ${jobId}] Failed to analyze conversation for ${participant.id}:`, error);
@@ -292,11 +338,15 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
           if (participant.id === page.instagramAccountId) continue;
 
           try {
+            // Fetch ALL messages for comprehensive analysis
+            console.log(`[Background Sync ${jobId}] Fetching all IG messages for conversation ${convo.id}...`);
+            const allMessages = await client.getAllMessagesForConversation(convo.id);
+            
             let firstName = `IG User ${participant.id.slice(-6)}`;
             let lastName: string | null = null;
 
-            if (convo.messages?.data) {
-              const userMessage = convo.messages.data.find(
+            if (allMessages && allMessages.length > 0) {
+              const userMessage = allMessages.find(
                 (msg: { from?: { id?: string } }) => msg.from?.id === participant.id
               );
 
@@ -316,31 +366,45 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
             let aiContext: string | null = null;
             let aiAnalysis = null;
             
-            if (convo.messages?.data && convo.messages.data.length > 0) {
+            if (allMessages && allMessages.length > 0) {
               try {
-                const messagesToAnalyze = convo.messages.data
+                console.log(`[Background Sync ${jobId}] Processing ${allMessages.length} IG messages for analysis`);
+                
+                const messagesToAnalyze = allMessages
                   .filter((msg: any) => msg.message)
                   .map((msg: any) => ({
                     from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
                     text: msg.message,
-                  }));
+                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined
+                  }))
+                  .reverse(); // Oldest first for chronological analysis
 
                 if (messagesToAnalyze.length > 0) {
-                  // If auto-pipeline is enabled, get full analysis
-                  if (page.autoPipelineId && page.autoPipeline) {
-                    aiAnalysis = await analyzeConversationWithStageRecommendation(
-                      messagesToAnalyze,
-                      page.autoPipeline.stages
-                    );
-                    aiContext = aiAnalysis?.summary || null;
+                  // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
+                  console.log(`[Background Sync ${jobId}] Analyzing full IG conversation with enhanced fallback...`);
+                  
+                  const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
+                    messagesToAnalyze,
+                    page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
+                    new Date(convo.updated_time)
+                  );
+                  
+                  aiAnalysis = analysis;
+                  aiContext = analysis.summary;
+                  
+                  if (usedFallback) {
+                    console.warn(`[Background Sync ${jobId}] IG: Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
                   } else {
-                    // Otherwise just get summary
-                    aiContext = await analyzeConversation(messagesToAnalyze);
+                    console.log(`[Background Sync ${jobId}] IG AI Analysis successful:`, {
+                      stage: analysis.recommendedStage,
+                      score: analysis.leadScore,
+                      status: analysis.leadStatus,
+                      confidence: analysis.confidence
+                    });
                   }
                   
-                  // Always add delay after analysis attempt (success or failure)
-                  // This ensures we don't hit rate limits on the next contact
-                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  // Rate limit delay (shorter since retries are built-in)
+                  await new Promise(resolve => setTimeout(resolve, 500));
                 }
               } catch (error) {
                 console.error(`[Background Sync ${jobId}] Failed to analyze IG conversation for ${participant.id}:`, error);

@@ -1,0 +1,34 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 5.1s
+   Running TypeScript ...
+Failed to compile.
+
+./src/app/(dashboard)/settings/profile/page.tsx:93:28
+Type error: No overload matches this call.
+  Overload 1 of 2, '(props: ProfileFormProps, context?: any): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ id: string; email: string; name: string | null; image: string | null; role: $Enums.Role; organizationId: string; }' is not assignable to type '{ id: string; name?: string | undefined; email: string; image?: string | undefined; }'.
+      Types of property 'name' are incompatible.
+        Type 'string | null' is not assignable to type 'string | undefined'.
+          Type 'null' is not assignable to type 'string | undefined'.
+  Overload 2 of 2, '(props: ProfileFormProps): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ id: string; email: string; name: string | null; image: string | null; role: $Enums.Role; organizationId: string; }' is not assignable to type '{ id: string; name?: string | undefined; email: string; image?: string | undefined; }'.
+      Types of property 'name' are incompatible.
+        Type 'string | null' is not assignable to type 'string | undefined'.
+          Type 'null' is not assignable to type 'string | undefined'.
+
+[0m [90m 91 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 92 |[39m             }[33m>[39m
+[31m[1m>[22m[39m[90m 93 |[39m               [33m<[39m[33mProfileForm[39m user[33m=[39m{session[33m.[39muser} [33m/[39m[33m>[39m
+ [90m    |[39m                            [31m[1m^[22m[39m
+ [90m 94 |[39m             [33m<[39m[33m/[39m[33mSuspense[39m[33m>[39m
+ [90m 95 |[39m           [33m<[39m[33m/[39m[33mCardContent[39m[33m>[39m
+ [90m 96 |[39m         [33m<[39m[33m/[39m[33mCard[39m[33m>[39m[0m
+Next.js build worker exited with code: 1 and signal: null

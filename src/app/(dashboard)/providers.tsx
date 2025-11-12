@@ -1,16 +1,10 @@
 'use client';
 
-import { SessionProvider } from 'next-auth/react';
-
+/**
+ * Dashboard Providers
+ * Note: Using Supabase for auth, not NextAuth
+ */
 export function Providers({ children }: { children: React.ReactNode }) {
-  return (
-    <SessionProvider 
-      basePath="/api/auth"
-      refetchInterval={0}
-      refetchOnWindowFocus={false}
-    >
-      {children}
-    </SessionProvider>
-  );
+  return <>{children}</>;
 }
 

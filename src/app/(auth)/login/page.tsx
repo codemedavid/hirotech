@@ -1,14 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -20,35 +22,71 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      console.log('[Login] Attempting sign in...');
+      console.log('[Login] === Starting Supabase Login ===');
+      console.log('[Login] Email:', email);
       
-      const result = await signIn('credentials', {
+      const supabase = createClient();
+      
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        redirect: false,
-        callbackUrl: '/dashboard',
       });
 
-      console.log('[Login] SignIn result:', result);
+      console.log('[Login] Supabase response:', {
+        hasUser: !!data?.user,
+        hasSession: !!data?.session,
+        error: signInError?.message,
+      });
 
-      if (result?.error) {
-        console.error('[Login] Error:', result.error);
-        setError('Invalid email or password');
+      if (signInError) {
+        console.error('[Login] ❌ Error:', signInError);
+        
+        // Provide user-friendly error messages
+        if (signInError.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password. Please check your credentials and try again.');
+        } else if (signInError.message.includes('Email not confirmed')) {
+          setError('Please verify your email address before logging in.');
+        } else {
+          setError(signInError.message);
+        }
+        
         setIsLoading(false);
         return;
       }
 
-      if (result?.ok) {
-        console.log('[Login] Success! Redirecting...');
-        // Force a hard redirect to ensure cookies are picked up
-        window.location.href = '/dashboard';
+      if (data?.user) {
+        console.log('[Login] ✅ Success! User:', data.user.email);
+        
+        // Ensure user profile exists in database
+        try {
+          console.log('[Login] 🔍 Checking user profile in database...');
+          const checkResponse = await fetch('/api/auth/check-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: data.user.id }),
+          });
+
+          if (!checkResponse.ok) {
+            console.warn('[Login] ⚠️ Profile check failed, but continuing...');
+          } else {
+            console.log('[Login] ✅ Profile verified');
+          }
+        } catch (profileError) {
+          console.warn('[Login] ⚠️ Profile check error:', profileError);
+          // Continue anyway - the auth-helpers will create the profile
+        }
+        
+        console.log('[Login] ✅ Redirecting to dashboard...');
+        router.push('/dashboard');
+        router.refresh();
       } else {
+        console.error('[Login] ❌ No user returned');
         setError('Login failed. Please try again.');
         setIsLoading(false);
       }
     } catch (error) {
-      console.error('[Login] Exception:', error);
-      setError('An error occurred. Please try again.');
+      console.error('[Login] 💥 Exception:', error);
+      setError('An unexpected error occurred. Please try again or contact support.');
       setIsLoading(false);
     }
   };

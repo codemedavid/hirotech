@@ -1,0 +1,76 @@
+[34m🚀 Starting Comprehensive Team System Tests...[0m
+[34m📍 Testing against: http://localhost:3000
+[0m
+[36m
+🧪 Testing: Database Connection[0m
+[32m✅ PASS: Database Connection[0m
+[36m
+🧪 Testing: Health Check Endpoints[0m
+[33m⚠️  WARNING: /api/health - /api/health returned server error: 503[0m
+[33m⚠️  WARNING: /api/facebook/debug - /api/facebook/debug returned server error: 500[0m
+[32m✅ PASS: Health Check Endpoints[0m
+[36m
+🧪 Testing: Team API Endpoints Structure[0m
+[32m✅ PASS: Team API Endpoints Structure[0m
+[36m
+🧪 Testing: Enhanced Search Functionality[0m
+[32m✅ PASS: Enhanced Search Functionality[0m
+[36m
+🧪 Testing: Default Thread Creation Logic[0m
+[32m✅ PASS: Default Thread Creation Logic[0m
+[36m
+🧪 Testing: Edge Cases - Search with Special Characters[0m
+[32m✅ PASS: Edge Cases - Search with Special Characters[0m
+[36m
+🧪 Testing: Edge Cases - Empty Thread List[0m
+[32m✅ PASS: Edge Cases - Empty Thread List[0m
+[36m
+🧪 Testing: Edge Cases - Null/Undefined Values[0m
+[32m✅ PASS: Edge Cases - Null/Undefined Values[0m
+[36m
+🧪 Testing: Socket.IO Event Structure[0m
+[32m✅ PASS: Socket.IO Event Structure[0m
+[36m
+🧪 Testing: TypeScript Interface Completeness[0m
+[32m✅ PASS: TypeScript Interface Completeness[0m
+[36m
+🧪 Testing: Concurrent Request Handling[0m
+[31m❌ FAIL: Concurrent Request Handling[0m
+[31m   Error: No concurrent requests succeeded[0m
+[36m
+🧪 Testing: Security Headers Present[0m
+[33m⚠️  WARNING: No security headers found - consider adding them[0m
+[32m✅ PASS: Security Headers Present[0m
+[36m
+🧪 Testing: API Error Handling[0m
+[32m✅ PASS: API Error Handling[0m
+[34m
+================================================================================[0m
+[34m📊 TEST REPORT SUMMARY[0m
+[34m================================================================================[0m
+[32m
+✅ Passed: 12[0m
+[31m❌ Failed: 1[0m
+[33m⚠️  Warnings: 3[0m
+[32m📈 Pass Rate: 92.3%[0m
+[36m
+📋 Individual Test Results:[0m
+[32m  ✅ Database Connection[0m
+[32m  ✅ Health Check Endpoints[0m
+[32m  ✅ Team API Endpoints Structure[0m
+[32m  ✅ Enhanced Search Functionality[0m
+[32m  ✅ Default Thread Creation Logic[0m
+[32m  ✅ Edge Cases - Search with Special Characters[0m
+[32m  ✅ Edge Cases - Empty Thread List[0m
+[32m  ✅ Edge Cases - Null/Undefined Values[0m
+[32m  ✅ Socket.IO Event Structure[0m
+[32m  ✅ TypeScript Interface Completeness[0m
+[31m  ❌ Concurrent Request Handling[0m
+[31m     └─ No concurrent requests succeeded[0m
+[32m  ✅ Security Headers Present[0m
+[32m  ✅ API Error Handling[0m
+[34m
+================================================================================[0m
+[33m⚠️  1 test(s) need attention.[0m
+[34m================================================================================
+[0m

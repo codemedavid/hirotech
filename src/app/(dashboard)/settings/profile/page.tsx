@@ -1,10 +1,59 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
-import { ProfileForm } from '@/components/settings/profile-form';
-import { PasswordForm } from '@/components/settings/password-form';
-import { EmailForm } from '@/components/settings/email-form';
+import dynamic from 'next/dynamic';
+import { Suspense } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Profile Settings',
+  description: 'Manage your account settings and preferences',
+};
+
+// Code-split form components for better performance
+const ProfileForm = dynamic(
+  () => import('@/components/settings/profile-form').then(mod => ({ default: mod.ProfileForm })),
+  {
+    loading: () => (
+      <div className="space-y-4">
+        <Skeleton className="h-24 w-24 rounded-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+    )
+  }
+);
+
+const PasswordForm = dynamic(
+  () => import('@/components/settings/password-form').then(mod => ({ default: mod.PasswordForm })),
+  {
+    loading: () => (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+    )
+  }
+);
+
+const EmailForm = dynamic(
+  () => import('@/components/settings/email-form').then(mod => ({ default: mod.EmailForm })),
+  {
+    loading: () => (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+    )
+  }
+);
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -34,7 +83,20 @@ export default async function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ProfileForm user={session.user} />
+            <Suspense fallback={
+              <div className="space-y-4">
+                <Skeleton className="h-24 w-24 rounded-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            }>
+              <ProfileForm user={{
+                id: session.user.id,
+                email: session.user.email,
+                name: session.user.name || undefined,
+                image: session.user.image || undefined,
+              }} />
+            </Suspense>
           </CardContent>
         </Card>
 
@@ -47,7 +109,15 @@ export default async function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PasswordForm />
+            <Suspense fallback={
+              <div className="space-y-4">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            }>
+              <PasswordForm />
+            </Suspense>
           </CardContent>
         </Card>
 
@@ -60,7 +130,15 @@ export default async function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <EmailForm currentEmail={session.user.email} />
+            <Suspense fallback={
+              <div className="space-y-4">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            }>
+              <EmailForm currentEmail={session.user.email} />
+            </Suspense>
           </CardContent>
         </Card>
       </div>

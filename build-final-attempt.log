@@ -1,0 +1,154 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 5.5s
+   Running TypeScript ...
+   Collecting page data ...
+   Generating static pages (0/62) ...
+   Generating static pages (15/62) 
+   Generating static pages (30/62) 
+(node:22980) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30620) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+   Generating static pages (46/62) 
+ ✓ Generating static pages (62/62) in 1242.4ms
+   Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /ai-automations
+├ ƒ /api/ai-automations
+├ ƒ /api/ai-automations/[id]
+├ ƒ /api/ai-automations/execute
+├ ƒ /api/auth/check-profile
+├ ƒ /api/auth/check-session
+├ ƒ /api/auth/register-profile
+├ ƒ /api/auth/simple-login
+├ ƒ /api/campaigns
+├ ƒ /api/campaigns/[id]
+├ ƒ /api/campaigns/[id]/cancel
+├ ƒ /api/campaigns/[id]/failed-messages
+├ ƒ /api/campaigns/[id]/mark-complete
+├ ƒ /api/campaigns/[id]/resend
+├ ƒ /api/campaigns/[id]/resend-failed
+├ ƒ /api/campaigns/[id]/send
+├ ƒ /api/campaigns/[id]/stop
+├ ƒ /api/contacts
+├ ƒ /api/contacts/[id]
+├ ƒ /api/contacts/[id]/move
+├ ƒ /api/contacts/[id]/tags
+├ ƒ /api/contacts/analyze-all
+├ ƒ /api/contacts/bulk
+├ ƒ /api/contacts/fix-zero-scores
+├ ƒ /api/contacts/ids
+├ ƒ /api/contacts/total-count
+├ ƒ /api/cron/ai-automations
+├ ƒ /api/cron/teams
+├ ƒ /api/debug/facebook-config
+├ ƒ /api/debug/oauth-urls
+├ ƒ /api/facebook/auth
+├ ƒ /api/facebook/callback
+├ ƒ /api/facebook/callback-popup
+├ ƒ /api/facebook/oauth
+├ ƒ /api/facebook/pages
+├ ƒ /api/facebook/pages/[pageId]
+├ ƒ /api/facebook/pages/[pageId]/contacts-count
+├ ƒ /api/facebook/pages/[pageId]/latest-sync
+├ ƒ /api/facebook/pages/connected
+├ ƒ /api/facebook/sync
+├ ƒ /api/facebook/sync-background
+├ ƒ /api/facebook/sync-cancel
+├ ƒ /api/facebook/sync-status/[jobId]
+├ ƒ /api/health
+├ ƒ /api/pipelines
+├ ƒ /api/pipelines/[id]
+├ ƒ /api/pipelines/[id]/analyze-stages
+├ ƒ /api/pipelines/[id]/reassign-all
+├ ƒ /api/pipelines/[id]/stages
+├ ƒ /api/pipelines/[id]/stages/bulk-delete
+├ ƒ /api/pipelines/[id]/stages/update-ranges
+├ ƒ /api/pipelines/analyze-all
+├ ƒ /api/pipelines/bulk-delete
+├ ƒ /api/pipelines/stages/[stageId]/contacts
+├ ƒ /api/pipelines/stages/[stageId]/contacts/bulk-move
+├ ƒ /api/pipelines/stages/[stageId]/contacts/bulk-remove
+├ ƒ /api/pipelines/stages/[stageId]/contacts/bulk-tag
+├ ƒ /api/socket
+├ ƒ /api/tags
+├ ƒ /api/tags/[id]
+├ ƒ /api/teams
+├ ƒ /api/teams/[id]
+├ ƒ /api/teams/[id]/activities
+├ ƒ /api/teams/[id]/activity
+├ ƒ /api/teams/[id]/broadcasts
+├ ƒ /api/teams/[id]/conversations/ensure-dms
+├ ƒ /api/teams/[id]/heatmap
+├ ƒ /api/teams/[id]/join-code
+├ ƒ /api/teams/[id]/join-requests
+├ ƒ /api/teams/[id]/join-requests/[requestId]/approve
+├ ƒ /api/teams/[id]/join-requests/[requestId]/reject
+├ ƒ /api/teams/[id]/members
+├ ƒ /api/teams/[id]/members/[memberId]
+├ ƒ /api/teams/[id]/members/[memberId]/permissions
+├ ƒ /api/teams/[id]/members/[memberId]/role
+├ ƒ /api/teams/[id]/members/bulk-remove
+├ ƒ /api/teams/[id]/members/search
+├ ƒ /api/teams/[id]/messages
+├ ƒ /api/teams/[id]/messages/[messageId]
+├ ƒ /api/teams/[id]/messages/[messageId]/reactions
+├ ƒ /api/teams/[id]/messages/search
+├ ƒ /api/teams/[id]/messages/upload-photo
+├ ƒ /api/teams/[id]/notifications
+├ ƒ /api/teams/[id]/notifications/[notificationId]/seen
+├ ƒ /api/teams/[id]/notifications/count
+├ ƒ /api/teams/[id]/notifications/seen-all
+├ ƒ /api/teams/[id]/permissions
+├ ƒ /api/teams/[id]/tasks
+├ ƒ /api/teams/[id]/tasks/[taskId]
+├ ƒ /api/teams/[id]/threads
+├ ƒ /api/teams/join
+├ ƒ /api/teams/switch
+├ ƒ /api/templates
+├ ƒ /api/templates/[id]
+├ ƒ /api/templates/bulk-delete
+├ ƒ /api/test-env
+├ ƒ /api/user/email
+├ ƒ /api/user/password
+├ ƒ /api/user/password-hint
+├ ƒ /api/user/profile
+├ ƒ /api/user/upload-image
+├ ƒ /api/webhooks/facebook
+├ ƒ /campaigns
+├ ƒ /campaigns/[id]
+├ ƒ /campaigns/new
+├ ƒ /contacts
+├ ƒ /contacts/[id]
+├ ƒ /dashboard
+├ ƒ /debug-session
+├ ƒ /facebook-pages/[id]/settings
+├ ○ /login
+├ ƒ /pipelines
+├ ƒ /pipelines/[id]
+├ ƒ /pipelines/new
+├ ○ /register
+├ ƒ /settings
+├ ƒ /settings/integrations
+├ ƒ /settings/profile
+├ ƒ /tags
+├ ƒ /team
+└ ƒ /templates
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

@@ -1,0 +1,24 @@
+
+> hiro@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Environments: .env.local, .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 5.0s
+   Running TypeScript ...
+Failed to compile.
+
+./src/components/teams/enhanced-team-inbox.tsx:502:38
+Type error: Property 'participants' does not exist on type 'Thread'. Did you mean 'participantIds'?
+
+[0m [90m 500 |[39m         
+ [90m 501 |[39m         [90m// Search by participant names if available[39m
+[31m[1m>[22m[39m[90m 502 |[39m         [36mconst[39m matchesParticipant [33m=[39m t[33m.[39mparticipants[33m?[39m[33m.[39msome(p [33m=>[39m
+ [90m     |[39m                                      [31m[1m^[22m[39m
+ [90m 503 |[39m           p[33m.[39muser[33m?[39m[33m.[39mname[33m?[39m[33m.[39mtoLowerCase()[33m.[39mincludes(query) [33m||[39m
+ [90m 504 |[39m           p[33m.[39mdisplayName[33m?[39m[33m.[39mtoLowerCase()[33m.[39mincludes(query)
+ [90m 505 |[39m         )[0m
+Next.js build worker exited with code: 1 and signal: null

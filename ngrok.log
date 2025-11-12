@@ -1,1 +1,1 @@
-/usr/bin/bash: line 1: ngrok: command not found
+stdout is not a tty

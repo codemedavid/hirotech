@@ -231,9 +231,9 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
       } else {
         toast.error(result.error || 'Failed to perform action');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Bulk action error:', error);
-      toast.error(error.message || 'Failed to perform bulk action');
+      toast.error(error instanceof Error ? error.message : 'Failed to perform bulk action');
     } finally {
       setBulkActionLoading(false);
     }
@@ -408,9 +408,9 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
                   checked={allSelected}
                   onCheckedChange={handleSelectAll}
                   aria-label="Select all"
-                  ref={(el) => {
+                  ref={(el: any) => {
                     if (el) {
-                      (el as any).indeterminate = someSelected;
+                      el.indeterminate = someSelected;
                     }
                   }}
                 />

@@ -1,0 +1,255 @@
+
+> hiro@0.1.0 lint
+> eslint
+
+
+C:\Users\bigcl\Downloads\hiro\scripts\check-system-services.ts
+  95:12  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\scripts\comprehensive-system-check.ts
+  60:12  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  82:12  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\scripts\create-enums.ts
+  42:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\(dashboard)\ai-automations\page.tsx
+   91:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  113:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  137:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\ai-automations\route.ts
+  5:27  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\cron\ai-automations\route.ts
+  72:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\socket\route.ts
+  7:27  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\teams\[id]\join-code\route.ts
+  76:11  warning  'team' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\teams\[id]\join-requests\route.ts
+  5:10  warning  'createDefaultPermissions' is defined but never used  @typescript-eslint/no-unused-vars
+  6:10  warning  'logActivity' is defined but never used               @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\teams\[id]\members\route.ts
+  4:10  warning  'isTeamAdmin' is defined but never used               @typescript-eslint/no-unused-vars
+  5:10  warning  'createDefaultPermissions' is defined but never used  @typescript-eslint/no-unused-vars
+  6:10  warning  'logActivity' is defined but never used               @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\app\api\teams\join\route.ts
+   91:11  warning  'joinRequest' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  101:11  warning  'member' is assigned a value but never used       @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\ai-automations\create-rule-dialog.tsx
+  13:19  warning  'Plus' is defined but never used               @typescript-eslint/no-unused-vars
+  61:10  warning  'tagInput' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\contacts\contacts-table.tsx
+  252:14  warning  '_error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\contacts\stage-filter.tsx
+  56:7  warning  'selectedPipeline' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\integrations\connected-pages-list.tsx
+  348:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  383:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\integrations\facebook-page-selector-dialog.tsx
+  62:6  warning  React Hook useEffect has a missing dependency: 'fetchPages'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\bigcl\Downloads\hiro\src\components\layout\header.tsx
+  28:5  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/set-state-in-effect')
+
+C:\Users\bigcl\Downloads\hiro\src\components\layout\sidebar.tsx
+  44:26  warning  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  59:45  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\create-conversation-dialog.tsx
+   70:6   warning  React Hook useEffect has a missing dependency: 'fetchMembers'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  124:14  warning  'error' is defined but never used                                                                                @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\enhanced-team-inbox.tsx
+  114:10  warning  'searching' is assigned a value but never used                                                                    @typescript-eslint/no-unused-vars
+  125:6   warning  React Hook useEffect has a missing dependency: 'fetchThreads'. Either include it or remove the dependency array   react-hooks/exhaustive-deps
+  131:6   warning  React Hook useEffect has a missing dependency: 'fetchMessages'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  327:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  377:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  432:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  454:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  473:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  493:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\join-request-queue.tsx
+  19:20  warning  'MessageSquare' is defined but never used  @typescript-eslint/no-unused-vars
+  25:13  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  32:58  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  55:14  warning  'error' is defined but never used          @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\member-permissions-dialog.tsx
+   17:10  warning  'Badge' is defined but never used                                                                                                                     @typescript-eslint/no-unused-vars
+   26:24  error    Unexpected any. Specify a different type                                                                                                              @typescript-eslint/no-explicit-any
+   39:54  error    Unexpected any. Specify a different type                                                                                                              @typescript-eslint/no-explicit-any
+   68:6   warning  React Hook useEffect has missing dependencies: 'currentPermissions' and 'loadCurrentPermissions'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  105:21  error    Unexpected any. Specify a different type                                                                                                              @typescript-eslint/no-explicit-any
+  106:18  error    Unexpected any. Specify a different type                                                                                                              @typescript-eslint/no-explicit-any
+  144:14  warning  'error' is defined but never used                                                                                                                     @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-activity.tsx
+  6:10  warning  'Avatar' is defined but never used          @typescript-eslint/no-unused-vars
+  6:18  warning  'AvatarFallback' is defined but never used  @typescript-eslint/no-unused-vars
+  6:34  warning  'AvatarImage' is defined but never used     @typescript-eslint/no-unused-vars
+  8:10  warning  'ActivityType' is defined but never used    @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-analytics.tsx
+   9:10  warning  'BarChart3' is defined but never used                                                                                                 @typescript-eslint/no-unused-vars
+  63:6   warning  React Hook useEffect has missing dependencies: 'fetchHeatmap' and 'fetchMembers'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  69:6   warning  React Hook useEffect has a missing dependency: 'fetchMemberMetrics'. Either include it or remove the dependency array                 react-hooks/exhaustive-deps
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-inbox.tsx
+   4:29  warning  'CardDescription' is defined but never used                                                                       @typescript-eslint/no-unused-vars
+   6:10  warning  'Input' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   9:10  warning  'Badge' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  11:10  warning  'Tabs' is defined but never used                                                                                  @typescript-eslint/no-unused-vars
+  11:16  warning  'TabsContent' is defined but never used                                                                           @typescript-eslint/no-unused-vars
+  11:29  warning  'TabsList' is defined but never used                                                                              @typescript-eslint/no-unused-vars
+  11:39  warning  'TabsTrigger' is defined but never used                                                                           @typescript-eslint/no-unused-vars
+  22:37  warning  'currentMemberId' is defined but never used                                                                       @typescript-eslint/no-unused-vars
+  23:42  error    Unexpected any. Specify a different type                                                                          @typescript-eslint/no-explicit-any
+  24:56  error    Unexpected any. Specify a different type                                                                          @typescript-eslint/no-explicit-any
+  25:44  error    Unexpected any. Specify a different type                                                                          @typescript-eslint/no-explicit-any
+  32:6   warning  React Hook useEffect has a missing dependency: 'fetchThreads'. Either include it or remove the dependency array   react-hooks/exhaustive-deps
+  38:6   warning  React Hook useEffect has a missing dependency: 'fetchMessages'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  86:14  warning  'error' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-members.tsx
+   16:69  warning  'Settings' is defined but never used                                                                             @typescript-eslint/no-unused-vars
+   29:42  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+   34:6   warning  React Hook useEffect has a missing dependency: 'fetchMembers'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   61:14  warning  'error' is defined but never used                                                                                @typescript-eslint/no-unused-vars
+   79:14  warning  'error' is defined but never used                                                                                @typescript-eslint/no-unused-vars
+   97:14  warning  'error' is defined but never used                                                                                @typescript-eslint/no-unused-vars
+  114:14  warning  'error' is defined but never used                                                                                @typescript-eslint/no-unused-vars
+  119:35  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-profile.tsx
+  60:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-settings.tsx
+   10:10  warning  'Badge' is defined but never used      @typescript-eslint/no-unused-vars
+   11:10  warning  'Separator' is defined but never used  @typescript-eslint/no-unused-vars
+   59:14  warning  'error' is defined but never used      @typescript-eslint/no-unused-vars
+   73:14  warning  'error' is defined but never used      @typescript-eslint/no-unused-vars
+  102:14  warning  'error' is defined but never used      @typescript-eslint/no-unused-vars
+  120:14  warning  'error' is defined but never used      @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\components\teams\team-tasks.tsx
+   35:54  warning  'isAdmin' is defined but never used                                                                                                 @typescript-eslint/no-unused-vars
+   36:38  error    Unexpected any. Specify a different type                                                                                            @typescript-eslint/no-explicit-any
+   52:6   warning  React Hook useEffect has missing dependencies: 'fetchMembers' and 'fetchTasks'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  135:14  warning  'error' is defined but never used                                                                                                   @typescript-eslint/no-unused-vars
+  147:37  error    Unexpected any. Specify a different type                                                                                            @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\contexts\socket-context.tsx
+  45:9  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\bigcl\Downloads\hiro\src\contexts\socket-context.tsx:45:9
+  43 |         socketRef.current.disconnect()
+  44 |         socketRef.current = null
+> 45 |         setSocket(null)
+     |         ^^^^^^^^^ Avoid calling setState() directly within an effect
+  46 |         setIsConnected(false)
+  47 |       }
+  48 |       return  react-hooks/set-state-in-effect
+
+C:\Users\bigcl\Downloads\hiro\src\lib\ai\analyze-existing-contacts.ts
+  13:22  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  42:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  43:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:23  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  54:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\ai\google-ai-service.ts
+   79:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  182:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  279:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\campaigns\send.ts
+   34:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   36:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   61:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   71:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   73:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  101:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  103:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  119:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  123:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  125:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  324:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\facebook\auth.ts
+  48:12  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\lib\facebook\background-sync.ts
+  161:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  162:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  322:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  323:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\facebook\client.ts
+   39:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   74:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   96:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  143:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  161:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  203:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  219:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  236:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  246:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  288:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  304:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  321:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\facebook\sync-contacts.ts
+   61:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   83:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   84:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  163:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  219:23  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  244:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  245:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  341:27  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  361:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\socket\server.ts
+   77:34  warning  'teamId' is defined but never used        @typescript-eslint/no-unused-vars
+   85:33  warning  'teamId' is defined but never used        @typescript-eslint/no-unused-vars
+  117:75  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  131:78  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  159:55  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\teams\activity.ts
+   12:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  104:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  154:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  202:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\hiro\src\lib\teams\notifications.ts
+  53:66  warning  'teamId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  76:64  warning  'teamId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\hiro\src\lib\teams\permissions.ts
+  2:20  warning  'TeamMemberStatus' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 150 problems (68 errors, 82 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+
