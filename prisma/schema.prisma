@@ -88,6 +88,11 @@ model FacebookPage {
   syncInterval        Int          @default(3600) // seconds
   lastSyncedAt        DateTime?
   
+  // Auto-pipeline assignment settings
+  autoPipelineId      String?
+  autoPipeline        Pipeline?    @relation(fields: [autoPipelineId], references: [id], onDelete: SetNull)
+  autoPipelineMode    AutoPipelineMode @default(SKIP_EXISTING)
+  
   isActive            Boolean      @default(true)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
@@ -96,6 +101,11 @@ model FacebookPage {
   conversations       Conversation[]
   campaigns           Campaign[]
   teamPermissions     TeamMemberPermission[]
+}
+
+enum AutoPipelineMode {
+  SKIP_EXISTING     // Only assign new contacts without pipeline
+  UPDATE_EXISTING   // Re-evaluate and update all contacts
 }
 
 // ============================================
@@ -219,6 +229,7 @@ model Pipeline {
   stages         PipelineStage[]
   contacts       Contact[]
   automations    PipelineAutomation[]
+  facebookPages  FacebookPage[]
   
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
