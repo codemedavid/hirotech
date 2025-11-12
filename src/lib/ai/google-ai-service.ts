@@ -19,6 +19,11 @@ class GoogleAIKeyManager {
       process.env.GOOGLE_AI_API_KEY_10,
       process.env.GOOGLE_AI_API_KEY_11,
       process.env.GOOGLE_AI_API_KEY_12,
+      process.env.GOOGLE_AI_API_KEY_13,
+      process.env.GOOGLE_AI_API_KEY_14,
+      process.env.GOOGLE_AI_API_KEY_15,
+      process.env.GOOGLE_AI_API_KEY_16,
+      process.env.GOOGLE_AI_API_KEY_17,
     ].filter((key): key is string => !!key);
 
     if (this.keys.length === 0) {

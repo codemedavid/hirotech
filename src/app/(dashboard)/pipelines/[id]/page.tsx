@@ -90,8 +90,10 @@ interface PipelineState {
     showDeleteStages: boolean;
     showAddContacts: boolean;
     showBulkTag: boolean;
+    showRemoveContacts: boolean;
   };
   selectedStageForTag: string | null;
+  selectedStageForRemove: string | null;
   isDeleting: boolean;
 }
 
@@ -107,6 +109,7 @@ type PipelineAction =
   | { type: 'CLEAR_ALL_STAGE_SELECTIONS' }
   | { type: 'TOGGLE_DIALOG'; payload: { dialog: keyof PipelineState['dialogs']; value: boolean } }
   | { type: 'SET_SELECTED_STAGE_FOR_TAG'; payload: string | null }
+  | { type: 'SET_SELECTED_STAGE_FOR_REMOVE'; payload: string | null }
   | { type: 'SET_IS_DELETING'; payload: boolean }
   | { type: 'UPDATE_REALTIME_COUNTS'; payload: Array<{ id: string; _count: { contacts: number } }> };
 
@@ -178,6 +181,8 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
       };
     case 'SET_SELECTED_STAGE_FOR_TAG':
       return { ...state, selectedStageForTag: action.payload };
+    case 'SET_SELECTED_STAGE_FOR_REMOVE':
+      return { ...state, selectedStageForRemove: action.payload };
     case 'SET_IS_DELETING':
       return { ...state, isDeleting: action.payload };
     case 'UPDATE_REALTIME_COUNTS':
@@ -214,8 +219,10 @@ const initialState: PipelineState = {
     showDeleteStages: false,
     showAddContacts: false,
     showBulkTag: false,
+    showRemoveContacts: false,
   },
   selectedStageForTag: null,
+  selectedStageForRemove: null,
   isDeleting: false,
 };
 
@@ -413,6 +420,19 @@ export default function PipelinePage() {
     const contactIds = Array.from(state.selectedStageContacts[stageId] || []);
     if (contactIds.length === 0) return;
 
+    // Show confirmation dialog instead of immediately removing
+    dispatch({ type: 'SET_SELECTED_STAGE_FOR_REMOVE', payload: stageId });
+    dispatch({ type: 'TOGGLE_DIALOG', payload: { dialog: 'showRemoveContacts', value: true } });
+  };
+
+  const confirmRemoveContacts = async () => {
+    if (!state.selectedStageForRemove) return;
+
+    const stageId = state.selectedStageForRemove;
+    const contactIds = Array.from(state.selectedStageContacts[stageId] || []);
+    
+    dispatch({ type: 'SET_IS_DELETING', payload: true });
+    
     try {
       const response = await fetch(
         `/api/pipelines/stages/${stageId}/contacts/bulk-remove`,
@@ -424,7 +444,7 @@ export default function PipelinePage() {
       );
 
       if (response.ok) {
-        toast.success(`Removed ${contactIds.length} contact(s)`);
+        toast.success(`Removed ${contactIds.length} contact(s) from pipeline`);
         dispatch({ type: 'CLEAR_STAGE_SELECTIONS', payload: stageId });
         await fetchPipeline();
       } else {
@@ -433,6 +453,10 @@ export default function PipelinePage() {
     } catch (error) {
       console.error('Error removing contacts:', error);
       toast.error('An error occurred');
+    } finally {
+      dispatch({ type: 'SET_IS_DELETING', payload: false });
+      dispatch({ type: 'TOGGLE_DIALOG', payload: { dialog: 'showRemoveContacts', value: false } });
+      dispatch({ type: 'SET_SELECTED_STAGE_FOR_REMOVE', payload: null });
     }
   };
 
@@ -746,6 +770,28 @@ export default function PipelinePage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {state.isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={state.dialogs.showRemoveContacts} onOpenChange={(value) => dispatch({ type: 'TOGGLE_DIALOG', payload: { dialog: 'showRemoveContacts', value } })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Contacts from Pipeline?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {state.selectedStageForRemove ? (state.selectedStageContacts[state.selectedStageForRemove]?.size || 0) : 0} contact(s) from this pipeline stage?
+              {' '}This will remove them from the pipeline but will not delete the contacts themselves.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={state.isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemoveContacts}
+              disabled={state.isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {state.isDeleting ? 'Removing...' : 'Remove Contacts'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
