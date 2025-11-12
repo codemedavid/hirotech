@@ -214,13 +214,13 @@ export function FacebookPageSelectorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Facebook className="h-5 w-5" />
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4">
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <Facebook className="h-4 w-4" />
             Select Facebook Pages
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs">
             Choose which Facebook pages you want to connect for messaging
           </DialogDescription>
         </DialogHeader>
@@ -230,26 +230,26 @@ export function FacebookPageSelectorDialog({
             <LoadingSpinner className="h-8 w-8" />
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 overflow-y-auto flex-1 px-6 min-h-0">
             {availablePages.length > 0 && (
               <>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">
-                      Available Pages ({filteredPages.length} of {availablePages.length})
+                    <Label className="text-xs font-medium">
+                      Available Pages ({filteredPages.length})
                       {selectedPageIds.size > 0 && (
                         <span className="ml-2 text-primary">
                           • {selectedPageIds.size} selected
                         </span>
                       )}
                     </Label>
-                    <div className="flex gap-2">
+                    <div className="flex gap-1">
                       {totalPages > 1 && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={toggleCurrentPage}
-                          className="text-xs"
+                          className="text-xs h-6 px-2"
                         >
                           {paginatedPages.every(p => selectedPageIds.has(p.id))
                             ? 'Deselect Page'
@@ -260,11 +260,11 @@ export function FacebookPageSelectorDialog({
                         variant="ghost"
                         size="sm"
                         onClick={toggleAllPages}
-                        className="text-xs font-semibold"
+                        className="text-xs font-semibold h-6 px-2"
                       >
                         {selectedPageIds.size === availablePages.length
                           ? 'Deselect All'
-                          : 'Select All Pages'}
+                          : 'Select All'}
                       </Button>
                     </div>
                   </div>
@@ -275,71 +275,64 @@ export function FacebookPageSelectorDialog({
                     placeholder="Search pages by name or ID..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full"
+                    className="w-full h-8 text-xs"
                   />
                 </div>
 
-                <ScrollArea className="h-[300px] rounded-md border p-4">
-                  <div className="space-y-3">
-                    {paginatedPages.map((page) => (
-                      <div
-                        key={page.id}
-                        className={`flex items-start space-x-3 rounded-lg border p-3 transition-all cursor-pointer ${
-                          selectedPageIds.has(page.id)
-                            ? 'bg-primary/10 border-primary shadow-sm'
-                            : 'hover:bg-muted/50 hover:border-muted-foreground/20'
-                        }`}
-                        onClick={() => togglePage(page.id)}
-                      >
-                        <Checkbox
-                          id={`page-${page.id}`}
-                          checked={selectedPageIds.has(page.id)}
-                          onCheckedChange={() => togglePage(page.id)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 space-y-1">
-                          <Label
-                            htmlFor={`page-${page.id}`}
-                            className="flex items-center gap-2 font-medium cursor-pointer"
-                          >
-                            {page.name}
-                            <Facebook className="h-3 w-3 text-blue-600" />
-                          </Label>
-                          <p className="text-xs text-muted-foreground">
-                            ID: {page.id}
-                          </p>
+                <div className="rounded-md border">
+                  <ScrollArea className="h-[180px] p-2">
+                    <div className="space-y-1.5">
+                      {paginatedPages.map((page) => (
+                        <div
+                          key={page.id}
+                          className={`flex items-start space-x-2 rounded-lg border p-2 transition-all cursor-pointer ${
+                            selectedPageIds.has(page.id)
+                              ? 'bg-primary/10 border-primary shadow-sm'
+                              : 'hover:bg-muted/50 hover:border-muted-foreground/20'
+                          }`}
+                          onClick={() => togglePage(page.id)}
+                        >
+                          <Checkbox
+                            id={`page-${page.id}`}
+                            checked={selectedPageIds.has(page.id)}
+                            onCheckedChange={() => togglePage(page.id)}
+                            className="mt-0.5 h-4 w-4"
+                          />
+                          <div className="flex-1 space-y-0">
+                            <Label
+                              htmlFor={`page-${page.id}`}
+                              className="flex items-center gap-1.5 font-medium cursor-pointer text-xs leading-tight"
+                            >
+                              {page.name}
+                              <Facebook className="h-3 w-3 text-blue-600" />
+                            </Label>
+                            <p className="text-[10px] text-muted-foreground">
+                              ID: {page.id}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
                 
                 {/* Pagination Controls */}
                 {totalPages > 1 && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t pt-3 bg-muted/30 -mx-4 px-4 py-3 rounded-b-lg">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Page {currentPage} of {totalPages} • Showing {startIndex + 1}-{Math.min(endIndex, filteredPages.length)} of {filteredPages.length}
+                  <div className="flex items-center justify-between gap-2 text-[10px] bg-muted/30 px-2 py-1.5 rounded-lg">
+                    <p className="text-muted-foreground">
+                      {startIndex + 1}-{Math.min(endIndex, filteredPages.length)} of {filteredPages.length}
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(1)}
-                        disabled={currentPage === 1}
-                        className="h-8"
-                      >
-                        First
-                      </Button>
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="h-8"
+                        className="h-6 w-6 p-0"
                       >
-                        <ChevronLeft className="h-4 w-4" />
+                        <ChevronLeft className="h-3 w-3" />
                       </Button>
-                      <span className="text-sm font-semibold min-w-[60px] text-center">
+                      <span className="font-semibold min-w-[40px] text-center text-xs">
                         {currentPage} / {totalPages}
                       </span>
                       <Button
@@ -347,18 +340,9 @@ export function FacebookPageSelectorDialog({
                         size="sm"
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="h-8"
+                        className="h-6 w-6 p-0"
                       >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className="h-8"
-                      >
-                        Last
+                        <ChevronRight className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>
@@ -367,12 +351,10 @@ export function FacebookPageSelectorDialog({
             )}
 
             {connectedPages.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    Already Connected ({filteredConnectedPages.length} of {connectedPages.length})
-                  </Label>
-                </div>
+              <div className="space-y-2 pt-2 border-t">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Already Connected ({filteredConnectedPages.length})
+                </Label>
                 
                 {/* Search bar for connected pages */}
                 <Input
@@ -380,29 +362,29 @@ export function FacebookPageSelectorDialog({
                   placeholder="Search connected pages..."
                   value={connectedSearchQuery}
                   onChange={(e) => setConnectedSearchQuery(e.target.value)}
-                  className="w-full"
+                  className="w-full h-8 text-xs"
                 />
                 
                 {/* Connected pages list with scroll */}
-                <div className="max-h-[250px] overflow-y-auto space-y-2 rounded-lg border p-3 bg-muted/20">
+                <div className="max-h-[120px] overflow-y-auto space-y-1.5 rounded-lg border p-2 bg-muted/20">
                   {paginatedConnectedPages.length > 0 ? (
                     paginatedConnectedPages.map((page) => (
                       <div
                         key={page.id}
-                        className="flex items-center justify-between rounded-lg border p-3 bg-background"
+                        className="flex items-center justify-between rounded-lg border p-1.5 bg-background"
                       >
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <span className="text-sm font-medium truncate block">{page.name}</span>
-                            <span className="text-xs text-muted-foreground">ID: {page.id}</span>
+                            <span className="text-xs font-medium truncate block">{page.name}</span>
+                            <span className="text-[10px] text-muted-foreground">ID: {page.id}</span>
                           </div>
                         </div>
-                        <Badge variant="secondary" className="flex-shrink-0">Connected</Badge>
+                        <Badge variant="secondary" className="flex-shrink-0 text-[10px] py-0 h-5">Connected</Badge>
                       </div>
                     ))
                   ) : (
-                    <p className="text-center text-sm text-muted-foreground py-4">
+                    <p className="text-center text-xs text-muted-foreground py-2">
                       No connected pages match your search
                     </p>
                   )}
@@ -410,30 +392,21 @@ export function FacebookPageSelectorDialog({
                 
                 {/* Pagination Controls for Connected Pages */}
                 {totalConnectedPages > 1 && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t pt-3 bg-muted/20 px-3 py-2 rounded-b-lg">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Page {connectedCurrentPage} of {totalConnectedPages} • Showing {connectedStartIndex + 1}-{Math.min(connectedEndIndex, filteredConnectedPages.length)} of {filteredConnectedPages.length}
+                  <div className="flex items-center justify-between gap-2 text-[10px] bg-muted/20 px-2 py-1.5 rounded-lg">
+                    <p className="text-muted-foreground">
+                      {connectedStartIndex + 1}-{Math.min(connectedEndIndex, filteredConnectedPages.length)} of {filteredConnectedPages.length}
                     </p>
                     <div className="flex items-center gap-1">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setConnectedCurrentPage(1)}
-                        disabled={connectedCurrentPage === 1}
-                        className="h-7 px-2 text-xs"
-                      >
-                        First
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
                         onClick={() => setConnectedCurrentPage(p => Math.max(1, p - 1))}
                         disabled={connectedCurrentPage === 1}
-                        className="h-7 px-2"
+                        className="h-5 w-5 p-0"
                       >
-                        <ChevronLeft className="h-3 w-3" />
+                        <ChevronLeft className="h-2.5 w-2.5" />
                       </Button>
-                      <span className="text-xs font-semibold min-w-[50px] text-center px-2">
+                      <span className="font-semibold min-w-[35px] text-center text-xs">
                         {connectedCurrentPage} / {totalConnectedPages}
                       </span>
                       <Button
@@ -441,18 +414,9 @@ export function FacebookPageSelectorDialog({
                         size="sm"
                         onClick={() => setConnectedCurrentPage(p => Math.min(totalConnectedPages, p + 1))}
                         disabled={connectedCurrentPage === totalConnectedPages}
-                        className="h-7 px-2"
+                        className="h-5 w-5 p-0"
                       >
-                        <ChevronRight className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setConnectedCurrentPage(totalConnectedPages)}
-                        disabled={connectedCurrentPage === totalConnectedPages}
-                        className="h-7 px-2 text-xs"
-                      >
-                        Last
+                        <ChevronRight className="h-2.5 w-2.5" />
                       </Button>
                     </div>
                   </div>
@@ -461,24 +425,26 @@ export function FacebookPageSelectorDialog({
             )}
 
             {pages.length === 0 && !isLoading && (
-              <div className="text-center py-8 text-muted-foreground">
+              <div className="text-center py-6 text-sm text-muted-foreground">
                 No Facebook pages found. Make sure you have pages you manage.
               </div>
             )}
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="px-6 py-4 border-t">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSaving}
+            className="h-9"
           >
             Cancel
           </Button>
           <Button
             onClick={handleSave}
             disabled={selectedPageIds.size === 0 || isSaving || isLoading}
+            className="h-9"
           >
             {isSaving ? (
               <>
