@@ -67,6 +67,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
   const [activeSyncJobs, setActiveSyncJobs] = useState<ActiveSyncJobs>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const pollingInProgressRef = useRef<Set<string>>(new Set()); // Track in-flight requests
   
   // Bulk operations state
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
@@ -98,17 +99,23 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
       const data = await response.json();
       const fetchedPages = data.pages || [];
       setPages(fetchedPages);
+      
+      // Show pages immediately - don't block on contact counts and sync jobs
+      setIsLoading(false);
 
-      // Fetch contact counts and latest sync jobs for all pages
-      await Promise.all([
+      // Fetch contact counts and latest sync jobs in the background (non-blocking)
+      // This allows the UI to render immediately while data loads progressively
+      Promise.all([
         ...fetchedPages.map((page: ConnectedPage) => fetchContactCount(page.id)),
         ...fetchedPages.map((page: ConnectedPage) => checkLatestSyncJob(page.id)),
-      ]);
+      ]).catch((error) => {
+        console.error('Error fetching page metadata:', error);
+        // Don't show error toast for background loading failures
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load connected pages';
       console.error('Error fetching connected pages:', error);
       toast.error(errorMessage);
-    } finally {
       setIsLoading(false);
     }
   }, []);
@@ -147,6 +154,18 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
     if (activeJobs.length === 0) return;
 
     for (const [pageId, job] of activeJobs) {
+      // Skip temporary job IDs (they'll be replaced with real ones)
+      if (job.id.startsWith('temp-')) {
+        continue;
+      }
+
+      // Prevent overlapping requests for the same job
+      if (pollingInProgressRef.current.has(job.id)) {
+        continue;
+      }
+
+      pollingInProgressRef.current.add(job.id);
+
       try {
         const response = await fetch(`/api/facebook/sync-status/${job.id}`);
         if (response.ok) {
@@ -189,12 +208,35 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
         }
       } catch (error) {
         console.error(`Error polling sync job ${job.id}:`, error);
+      } finally {
+        pollingInProgressRef.current.delete(job.id);
       }
     }
   }, [activeSyncJobs, pages, fetchConnectedPages, onSyncComplete]);
 
   // Start sync using background API
   const handleSync = async (page: ConnectedPage) => {
+    // Optimistic UI: Show immediate feedback
+    const tempJobId = `temp-${Date.now()}`;
+    setActiveSyncJobs(prev => ({
+      ...prev,
+      [page.id]: {
+        id: tempJobId,
+        status: 'PENDING',
+        syncedContacts: 0,
+        failedContacts: 0,
+        totalContacts: 0,
+        tokenExpired: false,
+        startedAt: null,
+        completedAt: null,
+      },
+    }));
+
+    toast.info(`Starting sync for ${page.pageName}...`, {
+      description: 'Sync will continue in the background',
+      duration: 2000,
+    });
+
     try {
       const response = await fetch('/api/facebook/sync-background', {
         method: 'POST',
@@ -218,12 +260,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
 
       const data = await response.json();
       
-      toast.info(`Started syncing contacts for ${page.pageName}`, {
-        description: 'Sync will continue in the background',
-        duration: 3000,
-      });
-
-      // Add to active jobs
+      // Update with real job ID
       setActiveSyncJobs(prev => ({
         ...prev,
         [page.id]: {
@@ -237,7 +274,19 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
           completedAt: null,
         },
       }));
+
+      toast.success(`Sync started for ${page.pageName}`, {
+        description: 'Syncing contacts in the background',
+        duration: 3000,
+      });
     } catch (error) {
+      // Remove optimistic update on error
+      setActiveSyncJobs(prev => {
+        const updated = { ...prev };
+        delete updated[page.id];
+        return updated;
+      });
+
       const errorMessage = error instanceof Error ? error.message : 'Failed to start sync';
       console.error('Error starting sync:', error);
       toast.error(errorMessage);
@@ -345,7 +394,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
       try {
         await handleSync(page);
         successCount++;
-      } catch (error) {
+      } catch {
         failCount++;
       }
     }
@@ -380,7 +429,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
         } else {
           failCount++;
         }
-      } catch (error) {
+      } catch {
         failCount++;
       }
     }
@@ -712,7 +761,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
                         <Progress value={syncProgress} className="h-2 bg-blue-100 dark:bg-blue-900" />
                       )}
                       <div className="flex items-start gap-2 text-xs text-blue-600 dark:text-blue-400">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
                         <p>
                           Syncing in background - safe to navigate away, refresh, or close this page. 
                           Progress will be saved automatically.
