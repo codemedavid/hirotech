@@ -968,3 +968,28 @@ enum NotificationType {
   PERMISSION_CHANGED
   TEAM_ANNOUNCEMENT
 }
+
+model ApiKey {
+  id                String        @id @default(cuid())
+  name              String?       // Optional descriptive name
+  encryptedKey      String        @db.Text // Encrypted API key
+  status            ApiKeyStatus  @default(ACTIVE)
+  rateLimitedAt     DateTime?     // When rate limit was hit
+  lastUsedAt        DateTime?
+  lastSuccessAt     DateTime?
+  totalRequests     Int           @default(0)
+  failedRequests    Int           @default(0)
+  consecutiveFailures Int         @default(0)
+  metadata          Json?         // Store key prefix, provider, etc.
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([status, rateLimitedAt])
+  @@index([status])
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  RATE_LIMITED
+  DISABLED
+}

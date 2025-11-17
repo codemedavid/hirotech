@@ -128,8 +128,9 @@ export function IntegrationsClient({ initialTotalContacts }: IntegrationsClientP
 
   function handleConnectFacebook() {
     // Open OAuth in popup window for better UX
+    // Optimized for standard screen sizes with scrollbars enabled
     const width = 600;
-    const height = 700;
+    const height = 600;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     

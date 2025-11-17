@@ -205,10 +205,10 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
                   console.log(`[Background Sync ${jobId}] Analyzing full conversation with enhanced fallback...`);
                   
                   const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
-                    messagesToAnalyze,
+                      messagesToAnalyze,
                     page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
                     new Date(convo.updated_time)
-                  );
+                    );
                   
                   aiAnalysis = analysis;
                   aiContext = analysis.summary;
@@ -384,10 +384,10 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
                   console.log(`[Background Sync ${jobId}] Analyzing full IG conversation with enhanced fallback...`);
                   
                   const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
-                    messagesToAnalyze,
+                      messagesToAnalyze,
                     page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
                     new Date(convo.updated_time)
-                  );
+                    );
                   
                   aiAnalysis = analysis;
                   aiContext = analysis.summary;
