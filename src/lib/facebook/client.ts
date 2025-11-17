@@ -154,6 +154,116 @@ export class FacebookClient {
   }
 
   /**
+   * Fetch Messenger conversations incrementally until all needed participants are found
+   * Stops early to avoid fetching thousands of conversations
+   */
+  async getMessengerConversationsUntilFound(
+    pageId: string,
+    neededParticipantIds: Set<string>,
+    limit = 100
+  ): Promise<any[]> {
+    const allConversations: any[] = [];
+    const foundParticipants = new Set<string>();
+    let nextUrl: string | null = null;
+    let hasMore = true;
+    let pageCount = 0;
+
+    try {
+      // Fetch first page
+      const response = await axios.get(
+        `${FB_GRAPH_URL}/${pageId}/conversations`,
+        {
+          params: {
+            access_token: this.accessToken,
+            fields: 'id,participants,updated_time,message_count',
+            limit,
+          },
+          timeout: 30000,
+        }
+      );
+
+      if (response.data.data) {
+        allConversations.push(...response.data.data);
+        pageCount++;
+        
+        // Check if we found all needed participants in first page
+        for (const convo of response.data.data) {
+          for (const participant of convo.participants.data) {
+            if (neededParticipantIds.has(participant.id)) {
+              foundParticipants.add(participant.id);
+            }
+          }
+        }
+      }
+
+      // Check if we found all needed participants
+      if (foundParticipants.size >= neededParticipantIds.size) {
+        console.log(`[Facebook API] Found all ${foundParticipants.size} participants in first ${pageCount} page(s), stopping early`);
+        return allConversations;
+      }
+
+      // Check if there's a next page
+      nextUrl = response.data.paging?.next || null;
+      hasMore = !!nextUrl;
+
+      // Fetch subsequent pages until we find all participants
+      while (hasMore && nextUrl && foundParticipants.size < neededParticipantIds.size) {
+        try {
+          const nextResponse = await axios.get(nextUrl, {
+            timeout: 30000,
+          });
+          
+          if (nextResponse.data.data && nextResponse.data.data.length > 0) {
+            allConversations.push(...nextResponse.data.data);
+            pageCount++;
+            
+            // Check if we found all needed participants
+            for (const convo of nextResponse.data.data) {
+              for (const participant of convo.participants.data) {
+                if (neededParticipantIds.has(participant.id)) {
+                  foundParticipants.add(participant.id);
+                }
+              }
+            }
+            
+            // Stop if we found all participants
+            if (foundParticipants.size >= neededParticipantIds.size) {
+              console.log(`[Facebook API] Found all ${foundParticipants.size} participants after ${pageCount} pages, stopping early`);
+              break;
+            }
+          }
+
+          // Update pagination info
+          nextUrl = nextResponse.data.paging?.next || null;
+          hasMore = !!nextUrl && nextResponse.data.data?.length > 0;
+
+          // Add small delay to avoid rate limiting
+          if (hasMore) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        } catch (paginationError: any) {
+          console.error('Error fetching next page of Messenger conversations:', paginationError);
+          
+          // If we get rate limited, throw the error
+          const fbError = paginationError.response?.data?.error;
+          if (fbError && (fbError.code === 613 || fbError.code === 4 || fbError.code === 17)) {
+            throw parseFacebookError(paginationError, `Rate limited while paginating conversations for Page ID: ${pageId}`);
+          }
+          
+          // For other pagination errors, log but continue with what we have
+          console.warn(`Failed to fetch page, continuing with ${allConversations.length} conversations already fetched`);
+          break;
+        }
+      }
+
+      console.log(`[Facebook API] Fetched ${pageCount} pages, found ${foundParticipants.size}/${neededParticipantIds.size} participants`);
+      return allConversations;
+    } catch (error: any) {
+      throw parseFacebookError(error, `Failed to fetch conversations for Page ID: ${pageId}`);
+    }
+  }
+
+  /**
    * Fetch Messenger conversations with messages (includes sender names)
    * Automatically handles pagination to fetch ALL conversations
    */
@@ -184,9 +294,16 @@ export class FacebookClient {
       hasMore = !!nextUrl;
 
       // Fetch all subsequent pages
+      let pageCount = 1;
       while (hasMore && nextUrl) {
         try {
-          const nextResponse = await axios.get(nextUrl);
+          if (pageCount % 10 === 0) {
+            console.log(`[Facebook API] Fetched ${pageCount} pages, ${allConversations.length} Messenger conversations so far...`);
+          }
+          
+          const nextResponse = await axios.get(nextUrl, {
+            timeout: 30000, // 30 second timeout per request
+          });
           
           if (nextResponse.data.data && nextResponse.data.data.length > 0) {
             allConversations.push(...nextResponse.data.data);
@@ -195,6 +312,7 @@ export class FacebookClient {
           // Update pagination info
           nextUrl = nextResponse.data.paging?.next || null;
           hasMore = !!nextUrl && nextResponse.data.data?.length > 0;
+          pageCount++;
 
           // Add small delay to avoid rate limiting
           if (hasMore) {
@@ -262,6 +380,30 @@ export class FacebookClient {
   }
 
   /**
+   * Fetch limited messages for a conversation (faster for analysis)
+   * Fetches only the most recent messages up to the limit
+   */
+  async getRecentMessagesForConversation(conversationId: string, limit: number = 100): Promise<any[]> {
+    try {
+      const response: any = await axios.get(`${FB_GRAPH_URL}/${conversationId}/messages`, {
+        params: {
+          access_token: this.accessToken,
+          fields: 'from,message,created_time',
+          limit: Math.min(limit, 100), // Facebook API max is 100 per request
+        },
+        timeout: 30000, // 30 second timeout
+      });
+
+      const messages = response.data.data || [];
+      console.log(`[Facebook Client] Fetched ${messages.length} recent messages for conversation ${conversationId}`);
+      return messages;
+    } catch (error: any) {
+      console.error(`[Facebook Client] Error fetching recent messages for conversation ${conversationId}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Get user profile (Messenger)
    */
   async getMessengerProfile(psid: string) {
@@ -282,6 +424,107 @@ export class FacebookClient {
    * Get Instagram conversations with messages (includes sender names)
    * Automatically handles pagination to fetch ALL conversations
    */
+  /**
+   * Fetch Instagram conversations incrementally until all needed participants are found
+   * Stops early to avoid fetching thousands of conversations
+   */
+  async getInstagramConversationsUntilFound(
+    igAccountId: string,
+    neededParticipantIds: Set<string>,
+    limit = 100
+  ): Promise<any[]> {
+    const allConversations: any[] = [];
+    const foundParticipants = new Set<string>();
+    let nextUrl: string | null = null;
+    let hasMore = true;
+    let pageCount = 0;
+
+    try {
+      // Fetch first page
+      const response = await axios.get(
+        `${FB_GRAPH_URL}/${igAccountId}/conversations`,
+        {
+          params: {
+            access_token: this.accessToken,
+            fields: 'id,participants,updated_time,message_count',
+            limit,
+          },
+          timeout: 30000,
+        }
+      );
+
+      if (response.data.data) {
+        allConversations.push(...response.data.data);
+        pageCount++;
+        
+        // Check if we found all needed participants in first page
+        for (const convo of response.data.data) {
+          for (const participant of convo.participants.data) {
+            if (neededParticipantIds.has(participant.id)) {
+              foundParticipants.add(participant.id);
+            }
+          }
+        }
+      }
+
+      // Check if we found all needed participants
+      if (foundParticipants.size >= neededParticipantIds.size) {
+        console.log(`[Facebook API] Found all ${foundParticipants.size} IG participants in first ${pageCount} page(s), stopping early`);
+        return allConversations;
+      }
+
+      // Check if there's a next page
+      nextUrl = response.data.paging?.next || null;
+      hasMore = !!nextUrl;
+
+      // Fetch subsequent pages until we find all participants
+      while (hasMore && nextUrl && foundParticipants.size < neededParticipantIds.size) {
+        try {
+          const nextResponse = await axios.get(nextUrl, {
+            timeout: 30000,
+          });
+          
+          if (nextResponse.data.data && nextResponse.data.data.length > 0) {
+            allConversations.push(...nextResponse.data.data);
+            pageCount++;
+            
+            // Check if we found all needed participants
+            for (const convo of nextResponse.data.data) {
+              for (const participant of convo.participants.data) {
+                if (neededParticipantIds.has(participant.id)) {
+                  foundParticipants.add(participant.id);
+                }
+              }
+            }
+            
+            // Stop if we found all participants
+            if (foundParticipants.size >= neededParticipantIds.size) {
+              console.log(`[Facebook API] Found all ${foundParticipants.size} IG participants after ${pageCount} pages, stopping early`);
+              break;
+            }
+          }
+
+          // Update pagination info
+          nextUrl = nextResponse.data.paging?.next || null;
+          hasMore = !!nextUrl && nextResponse.data.data?.length > 0;
+
+          // Add small delay to avoid rate limiting
+          if (hasMore) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        } catch (paginationError: any) {
+          console.error('Error fetching next page of Instagram conversations:', paginationError);
+          break;
+        }
+      }
+
+      console.log(`[Facebook API] Fetched ${pageCount} IG pages, found ${foundParticipants.size}/${neededParticipantIds.size} participants`);
+      return allConversations;
+    } catch (error: any) {
+      throw parseFacebookError(error, `Failed to fetch Instagram conversations for Account ID: ${igAccountId}`);
+    }
+  }
+
   async getInstagramConversations(igAccountId: string, limit = 100) {
     const allConversations: any[] = [];
     let nextUrl: string | null = null;

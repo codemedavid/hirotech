@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { analyzeSelectedContacts } from '@/lib/facebook/analyze-selected-contacts';
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,7 +10,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { action, contactIds, data } = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch (error) {
+      return NextResponse.json(
+        { error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
+
+    const { action, contactIds, data } = body;
 
     if (!action || !contactIds || !Array.isArray(contactIds)) {
       return NextResponse.json(
@@ -19,13 +30,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify all contacts belong to user's organization
-    const contacts = await prisma.contact.findMany({
-      where: {
-        id: { in: contactIds },
-        organizationId: session.user.organizationId,
-      },
-      select: { id: true, tags: true },
-    });
+    let contacts;
+    try {
+      contacts = await prisma.contact.findMany({
+        where: {
+          id: { in: contactIds },
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true, tags: true },
+      });
+    } catch (dbError: any) {
+      // Handle database connection errors
+      if (dbError?.code === 'P1001' || dbError?.message?.includes("Can't reach database")) {
+        console.error('[Bulk API] Database connection error:', dbError.message);
+        return NextResponse.json(
+          { 
+            error: 'Database connection failed. Please try again in a moment.',
+            details: 'The database server is temporarily unavailable.'
+          },
+          { status: 503 } // Service Unavailable
+        );
+      }
+      throw dbError; // Re-throw other errors
+    }
 
     if (contacts.length !== contactIds.length) {
       return NextResponse.json(
@@ -204,6 +231,37 @@ export async function POST(request: NextRequest) {
         result = { success: true, updated: contactIds.length };
         break;
 
+      case 'analyze':
+        // Analyze selected contacts with AI and assign to pipeline
+        try {
+          const analyzeResult = await analyzeSelectedContacts(
+            contactIds,
+            session.user.organizationId
+          );
+
+          result = {
+            success: true,
+            analyzed: analyzeResult.successCount,
+            failed: analyzeResult.failedCount,
+            errors: analyzeResult.errors,
+          };
+        } catch (analyzeError: any) {
+          // Handle database connection errors during analysis
+          if (analyzeError?.code === 'P1001' || analyzeError?.message?.includes("Can't reach database")) {
+            console.error('[Bulk API] Database connection error during analysis:', analyzeError.message);
+            return NextResponse.json(
+              { 
+                error: 'Database connection failed during analysis. Some contacts may have been analyzed.',
+                details: 'The database server is temporarily unavailable. Please try again.',
+                success: false
+              },
+              { status: 503 }
+            );
+          }
+          throw analyzeError; // Re-throw other errors
+        }
+        break;
+
       default:
         return NextResponse.json(
           { error: 'Invalid action' },
@@ -212,11 +270,46 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(result);
-  } catch (error) {
-    const err = error as Error;
-    console.error('Bulk action error:', err);
+  } catch (error: any) {
+    console.error('Bulk action error:', error);
+    
+    // Handle Prisma database errors
+    if (error?.code === 'P1001' || error?.message?.includes("Can't reach database")) {
+      return NextResponse.json(
+        { 
+          error: 'Database connection failed. Please try again in a moment.',
+          details: 'The database server is temporarily unavailable.'
+        },
+        { status: 503 }
+      );
+    }
+
+    // Handle other Prisma errors
+    if (error?.code?.startsWith('P')) {
+      return NextResponse.json(
+        { 
+          error: 'Database error occurred',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        },
+        { status: 500 }
+      );
+    }
+
+    // Handle JSON parsing errors
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        { error: 'Invalid request format' },
+        { status: 400 }
+      );
+    }
+
+    // Generic error
+    const errorMessage = error instanceof Error ? error.message : 'Failed to perform bulk action';
     return NextResponse.json(
-      { error: 'Failed to perform bulk action' },
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     );
   }

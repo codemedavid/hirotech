@@ -195,6 +195,45 @@ class ApiKeyManager {
   }
 
   /**
+   * Mark a key as invalid (401/authentication errors)
+   * Disables the key and removes it from active rotation
+   */
+  async markInvalid(keyIdOrDecryptedKey: string, reason: string = 'Authentication failed'): Promise<void> {
+    try {
+      const apiKeyRecord = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
+
+      if (!apiKeyRecord) {
+        console.warn('[ApiKeyManager] Key not found for invalidation marking');
+        return;
+      }
+
+      // Get full key record to access name
+      const fullKey = await prisma.apiKey.findUnique({
+        where: { id: apiKeyRecord.id },
+        select: { id: true, name: true },
+      });
+
+      await prisma.apiKey.update({
+        where: { id: apiKeyRecord.id },
+        data: {
+          status: ApiKeyStatus.DISABLED,
+          consecutiveFailures: { increment: 1 },
+          failedRequests: { increment: 1 },
+          totalRequests: { increment: 1 },
+        },
+      });
+
+      // Invalidate cache to exclude this key
+      await this.refreshActiveKeys();
+      
+      console.error(`[ApiKeyManager] ⚠️ Marked key ${apiKeyRecord.id} (${fullKey?.name || 'unnamed'}) as DISABLED - ${reason}`);
+      console.error(`[ApiKeyManager] Please check this key in the API Keys settings and update it if needed`);
+    } catch (error) {
+      console.error('[ApiKeyManager] Error marking key as invalid:', error);
+    }
+  }
+
+  /**
    * Find a key by ID or by matching decrypted key value
    * This allows tracking by either identifier
    */

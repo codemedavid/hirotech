@@ -12,6 +12,57 @@ interface BackgroundSyncResult {
 }
 
 /**
+ * Concurrency limiter utility
+ * Limits the number of concurrent operations
+ * Properly processes queue to avoid pauses
+ */
+class ConcurrencyLimiter {
+  private queue: Array<{ 
+    fn: () => Promise<unknown>; 
+    resolve: (value: unknown) => void; 
+    reject: (error: unknown) => void 
+  }> = [];
+  private running = 0;
+
+  constructor(private limit: number) {}
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push({ 
+        fn: fn as () => Promise<unknown>, 
+        resolve: resolve as (value: unknown) => void, 
+        reject: reject as (error: unknown) => void 
+      });
+      this.process();
+    });
+  }
+
+  private async process() {
+    // Don't start new tasks if we're at the limit or queue is empty
+    while (this.running < this.limit && this.queue.length > 0) {
+      const task = this.queue.shift();
+      if (!task) break;
+
+      this.running++;
+      
+      // Execute task asynchronously (don't await here, let it run in background)
+      task.fn()
+        .then((result) => {
+          task.resolve(result);
+        })
+        .catch((error) => {
+          task.reject(error);
+        })
+        .finally(() => {
+          this.running--;
+          // Process next task in queue
+          this.process();
+        });
+    }
+  }
+}
+
+/**
  * Starts a background sync job that tracks progress in the database
  * This allows syncing to continue even if the user navigates away
  */
@@ -71,6 +122,59 @@ async function isJobCancelled(jobId: string): Promise<boolean> {
     select: { status: true },
   });
   return job?.status === 'CANCELLED';
+}
+
+/**
+ * Batch fetch existing contacts for early skip checks
+ * Returns a map of participantId -> contact with pipelineId
+ */
+async function getExistingContactsMap(
+  facebookPageId: string,
+  participantIds: string[],
+  platform: 'messenger' | 'instagram'
+): Promise<Map<string, { id: string; pipelineId: string | null }>> {
+  if (participantIds.length === 0) {
+    return new Map();
+  }
+
+  const whereClause = platform === 'messenger'
+    ? {
+        messengerPSID: { in: participantIds },
+        facebookPageId,
+      }
+    : {
+        OR: [
+          { instagramSID: { in: participantIds }, facebookPageId },
+          { messengerPSID: { in: participantIds }, facebookPageId },
+        ],
+      };
+
+  const contacts = await prisma.contact.findMany({
+    where: whereClause,
+    select: {
+      id: true,
+      messengerPSID: true,
+      instagramSID: true,
+      pipelineId: true,
+    },
+  });
+
+  const map = new Map<string, { id: string; pipelineId: string | null }>();
+  
+  for (const contact of contacts) {
+    const participantId = platform === 'messenger' 
+      ? contact.messengerPSID 
+      : contact.instagramSID || contact.messengerPSID;
+    
+    if (participantId) {
+      map.set(participantId, {
+        id: contact.id,
+        pipelineId: contact.pipelineId,
+      });
+    }
+  }
+
+  return map;
 }
 
 /**
@@ -143,139 +247,299 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
 
     console.log(`[Background Sync ${jobId}] Starting contact sync for Facebook Page: ${page.pageId}`);
 
+    // Set initial status - this helps UI show progress immediately
+    await prisma.syncJob.update({
+      where: { id: jobId },
+      data: {
+        totalContacts: 0, // Will be updated once we know the count
+      },
+    });
+
     // Sync Messenger contacts
     try {
       console.log(`[Background Sync ${jobId}] Fetching Messenger conversations...`);
       const messengerConvos = await client.getMessengerConversations(page.pageId);
       console.log(`[Background Sync ${jobId}] Fetched ${messengerConvos.length} Messenger conversations`);
+      
+      // Update progress: conversations fetched
+      await prisma.syncJob.update({
+        where: { id: jobId },
+        data: {
+          totalContacts: messengerConvos.length, // Temporary: will be updated with actual participant count
+        },
+      });
 
+      // Collect all participants from all conversations
+      interface ParticipantTask {
+        participantId: string;
+        conversationId: string;
+        updatedTime: string;
+      }
+
+      const participantTasks: ParticipantTask[] = [];
       for (const convo of messengerConvos) {
-        // Check if sync has been cancelled
-        if (await isJobCancelled(jobId)) {
-          console.log(`[Background Sync ${jobId}] Sync cancelled by user`);
-          return; // Exit gracefully
-        }
-
         for (const participant of convo.participants.data) {
           if (participant.id === page.pageId) continue; // Skip page itself
+          participantTasks.push({
+            participantId: participant.id,
+            conversationId: convo.id,
+            updatedTime: convo.updated_time,
+          });
+        }
+      }
 
-          try {
-            // Fetch ALL messages for comprehensive analysis
-            console.log(`[Background Sync ${jobId}] Fetching all messages for conversation ${convo.id}...`);
-            const allMessages = await client.getAllMessagesForConversation(convo.id);
-            
-            // Extract name from conversation messages
-            let firstName = `User ${participant.id.slice(-6)}`;
+      console.log(`[Background Sync ${jobId}] Processing ${participantTasks.length} Messenger participants`);
+
+      // Update progress: participants collected
+      await prisma.syncJob.update({
+        where: { id: jobId },
+        data: {
+          totalContacts: participantTasks.length, // Update with participant count
+        },
+      });
+
+      // Batch fetch existing contacts for early skip checks
+      const participantIds = participantTasks.map(t => t.participantId);
+      console.log(`[Background Sync ${jobId}] Checking existing contacts for ${participantIds.length} participants...`);
+      const existingContactsMap = await getExistingContactsMap(
+        page.id,
+        participantIds,
+        'messenger'
+      );
+      console.log(`[Background Sync ${jobId}] Found ${existingContactsMap.size} existing contacts`);
+
+      // Filter out contacts that should be skipped (SKIP_EXISTING mode)
+      const tasksToProcess = participantTasks.filter(task => {
+        if (page.autoPipelineMode === 'SKIP_EXISTING' && page.autoPipelineId) {
+          const existing = existingContactsMap.get(task.participantId);
+          if (existing) {
+            console.log(`[Background Sync ${jobId}] Skipping ${task.participantId} - contact already exists`);
+            return false; // Skip this contact entirely
+          }
+        }
+        return true;
+      });
+
+      console.log(`[Background Sync ${jobId}] ${tasksToProcess.length} participants need processing (${participantTasks.length - tasksToProcess.length} skipped)`);
+
+      // Set initial total contacts estimate for progress tracking
+      await prisma.syncJob.update({
+        where: { id: jobId },
+        data: {
+          totalContacts: tasksToProcess.length,
+        },
+      });
+
+      // Initialize concurrency limiters
+      const messageFetchLimiter = new ConcurrencyLimiter(5);
+      const analysisLimiter = new ConcurrencyLimiter(5);
+
+      // Process in batches to update progress incrementally
+      const BATCH_SIZE = 20; // Process 20 contacts at a time
+      const batches = [];
+      for (let i = 0; i < tasksToProcess.length; i += BATCH_SIZE) {
+        batches.push(tasksToProcess.slice(i, i + BATCH_SIZE));
+      }
+
+      console.log(`[Background Sync ${jobId}] Processing ${tasksToProcess.length} contacts in ${batches.length} batches of ${BATCH_SIZE}`);
+
+      // Process each batch
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        // Check if cancelled
+        if (await isJobCancelled(jobId)) {
+          console.log(`[Background Sync ${jobId}] Sync cancelled by user`);
+          return;
+        }
+
+        console.log(`[Background Sync ${jobId}] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} contacts)...`);
+
+        // Step 1: Fetch messages for this batch
+        const messageResults = await Promise.all(
+          batch.map(task =>
+            messageFetchLimiter.execute(async () => {
+              try {
+                const messages = await client.getAllMessagesForConversation(task.conversationId);
+                return { task, messages, error: null };
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+                return { task, messages: null, error: { message: errorMessage, code: errorCode } };
+              }
+            })
+          )
+        );
+
+        // Step 2: Analyze this batch
+        const analysisResults = await Promise.all(
+          messageResults.map(({ task, messages, error }) =>
+            analysisLimiter.execute(async () => {
+              if (error) {
+                return { task, processed: null, error };
+              }
+
+              if (!messages || messages.length === 0) {
+                return {
+                  task,
+                  processed: {
+                    participantId: task.participantId,
+                    firstName: `User ${task.participantId.slice(-6)}`,
+                    lastName: null,
+                    aiContext: null,
+                    aiAnalysis: null,
+                    lastInteraction: new Date(task.updatedTime),
+                  },
+                  error: null,
+                };
+              }
+
+              try {
+                // Extract name
+                let firstName = `User ${task.participantId.slice(-6)}`;
             let lastName: string | null = null;
 
-            if (allMessages && allMessages.length > 0) {
-              const userMessage = allMessages.find(
-                (msg: { from?: { id?: string } }) => msg.from?.id === participant.id
+                const userMessage = messages.find(
+                  (msg: { from?: { id?: string } }) => msg.from?.id === task.participantId
               );
 
               if (userMessage?.from?.name) {
                 const nameParts = userMessage.from.name.trim().split(' ');
                 firstName = nameParts[0] || firstName;
-
                 if (nameParts.length > 1) {
                   lastName = nameParts.slice(1).join(' ');
-                }
               }
             }
 
-            // Analyze conversation with AI if messages exist
+                // Analyze with AI
             let aiContext: string | null = null;
             let aiAnalysis = null;
             
-            if (allMessages && allMessages.length > 0) {
-              try {
-                console.log(`[Background Sync ${jobId}] Processing ${allMessages.length} messages for analysis`);
-                
-                const messagesToAnalyze = allMessages
-                  .filter((msg: any) => msg.message)
-                  .map((msg: any) => ({
+                const messagesToAnalyze = messages
+                  .filter((msg: { message?: string }) => msg.message)
+                  .map((msg: { from?: { name?: string; id?: string }; message?: string; created_time?: string }) => ({
                     from: msg.from?.name || msg.from?.id || 'Unknown',
-                    text: msg.message,
-                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined
+                    text: msg.message || '',
+                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
                   }))
-                  .reverse(); // Oldest first for chronological analysis
+                  .reverse(); // Oldest first
 
                 if (messagesToAnalyze.length > 0) {
-                  // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
-                  console.log(`[Background Sync ${jobId}] Analyzing full conversation with enhanced fallback...`);
-                  
-                  const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
+                  const { analysis, usedFallback } = await analyzeWithFallback(
                       messagesToAnalyze,
                     page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
-                    new Date(convo.updated_time)
+                    new Date(task.updatedTime)
                     );
                   
                   aiAnalysis = analysis;
                   aiContext = analysis.summary;
                   
                   if (usedFallback) {
-                    console.warn(`[Background Sync ${jobId}] Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
-                  } else {
-                    console.log(`[Background Sync ${jobId}] AI Analysis successful:`, {
-                      stage: analysis.recommendedStage,
-                      score: analysis.leadScore,
-                      status: analysis.leadStatus,
-                      confidence: analysis.confidence
-                    });
+                    console.warn(`[Background Sync ${jobId}] Used fallback scoring for ${task.participantId} - Score: ${analysis.leadScore}`);
                   }
-                  
-                  // Rate limit delay (shorter since retries are built-in)
-                  await new Promise(resolve => setTimeout(resolve, 500));
                 }
+
+                return {
+                  task,
+                  processed: {
+                    participantId: task.participantId,
+                    firstName,
+                    lastName,
+                    aiContext,
+                    aiAnalysis,
+                    lastInteraction: new Date(task.updatedTime),
+                  },
+                  error: null,
+                };
               } catch (error) {
-                console.error(`[Background Sync ${jobId}] Failed to analyze conversation for ${participant.id}:`, error);
-                // Add delay even on error to prevent rapid-fire failures
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                return { task, processed: null, error: { message: errorMessage, code: undefined } };
               }
+            })
+          )
+        );
+
+        // Step 3: Save this batch to database
+        await Promise.all(
+          analysisResults.map(({ task, processed, error }) => {
+            if (error) {
+              failedCount++;
+              errors.push({
+                platform: 'Messenger',
+                id: task.participantId,
+                error: error.message,
+                code: error.code,
+              });
+              if (error.code && error.code === 190) {
+                tokenExpired = true;
+              }
+              return null;
             }
 
-            const savedContact = await prisma.contact.upsert({
+            if (!processed) {
+              return null;
+            }
+
+            return prisma.contact
+              .upsert({
               where: {
                 messengerPSID_facebookPageId: {
-                  messengerPSID: participant.id,
+                    messengerPSID: task.participantId,
                   facebookPageId: page.id,
                 },
               },
               create: {
-                messengerPSID: participant.id,
-                firstName: firstName,
-                lastName: lastName,
+                  messengerPSID: task.participantId,
+                  firstName: processed.firstName,
+                  lastName: processed.lastName,
                 hasMessenger: true,
                 organizationId: page.organizationId,
                 facebookPageId: page.id,
-                lastInteraction: new Date(convo.updated_time),
-                aiContext: aiContext,
-                aiContextUpdatedAt: aiContext ? new Date() : null,
+                  lastInteraction: processed.lastInteraction,
+                  aiContext: processed.aiContext,
+                  aiContextUpdatedAt: processed.aiContext ? new Date() : null,
               },
               update: {
-                firstName: firstName,
-                lastName: lastName,
-                lastInteraction: new Date(convo.updated_time),
+                  firstName: processed.firstName,
+                  lastName: processed.lastName,
+                  lastInteraction: processed.lastInteraction,
                 hasMessenger: true,
-                aiContext: aiContext,
-                aiContextUpdatedAt: aiContext ? new Date() : null,
+                  aiContext: processed.aiContext,
+                  aiContextUpdatedAt: processed.aiContext ? new Date() : null,
               },
-            });
-            
+              })
+              .then(async (savedContact) => {
             // Auto-assign to pipeline if enabled
-            if (aiAnalysis && page.autoPipelineId) {
+                if (processed.aiAnalysis && page.autoPipelineId) {
               await autoAssignContactToPipeline({
                 contactId: savedContact.id,
-                aiAnalysis,
+                    aiAnalysis: processed.aiAnalysis,
                 pipelineId: page.autoPipelineId,
                 updateMode: page.autoPipelineMode,
               });
             }
-            
             syncedCount++;
+                return savedContact;
+              })
+              .catch((err) => {
+                failedCount++;
+                const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                const errorCode = err instanceof FacebookApiError ? err.code : undefined;
+                errors.push({
+                  platform: 'Messenger',
+                  id: task.participantId,
+                  error: errorMessage,
+                  code: errorCode,
+                });
+                if (err instanceof FacebookApiError && err.isTokenExpired) {
+                  tokenExpired = true;
+                }
+                return null;
+              });
+          })
+        );
 
-            // Update job progress periodically
-            if (syncedCount % 10 === 0) {
+        // Update progress after each batch
               await prisma.syncJob.update({
                 where: { id: jobId },
                 data: {
@@ -283,25 +547,7 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
                   failedContacts: failedCount,
                 },
               });
-            }
-          } catch (error) {
-            failedCount++;
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            const errorCode = error instanceof FacebookApiError ? error.code : undefined;
-
-            if (error instanceof FacebookApiError && error.isTokenExpired) {
-              tokenExpired = true;
-            }
-
-            console.error(`[Background Sync ${jobId}] Failed to sync Messenger contact ${participant.id}:`, errorMessage);
-            errors.push({
-              platform: 'Messenger',
-              id: participant.id,
-              error: errorMessage,
-              code: errorCode,
-            });
-          }
-        }
+        console.log(`[Background Sync ${jobId}] Batch ${batchIndex + 1}/${batches.length} complete: ${syncedCount} synced, ${failedCount} failed`);
       }
     } catch (error) {
       const errorCode = error instanceof FacebookApiError ? error.code : undefined;
@@ -327,145 +573,291 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
         const igConvos = await client.getInstagramConversations(page.instagramAccountId);
         console.log(`[Background Sync ${jobId}] Fetched ${igConvos.length} Instagram conversations`);
 
-      for (const convo of igConvos) {
-        // Check if sync has been cancelled
-        if (await isJobCancelled(jobId)) {
-          console.log(`[Background Sync ${jobId}] Sync cancelled by user`);
-          return; // Exit gracefully
+        // Collect all participants from all conversations
+        interface InstagramParticipantTask {
+          participantId: string;
+          conversationId: string;
+          updatedTime: string;
         }
 
-        for (const participant of convo.participants.data) {
-          if (participant.id === page.instagramAccountId) continue;
+        const igParticipantTasks: InstagramParticipantTask[] = [];
+      for (const convo of igConvos) {
+          for (const participant of convo.participants.data) {
+            if (participant.id === page.instagramAccountId) continue; // Skip page itself
+            igParticipantTasks.push({
+              participantId: participant.id,
+              conversationId: convo.id,
+              updatedTime: convo.updated_time,
+            });
+          }
+        }
 
-          try {
-            // Fetch ALL messages for comprehensive analysis
-            console.log(`[Background Sync ${jobId}] Fetching all IG messages for conversation ${convo.id}...`);
-            const allMessages = await client.getAllMessagesForConversation(convo.id);
-            
-            let firstName = `IG User ${participant.id.slice(-6)}`;
+        console.log(`[Background Sync ${jobId}] Processing ${igParticipantTasks.length} Instagram participants`);
+
+        // Batch fetch existing contacts for early skip checks
+        const igParticipantIds = igParticipantTasks.map(t => t.participantId);
+        const existingIgContactsMap = await getExistingContactsMap(
+          page.id,
+          igParticipantIds,
+          'instagram'
+        );
+
+        // Filter out contacts that should be skipped (SKIP_EXISTING mode)
+        const igTasksToProcess = igParticipantTasks.filter(task => {
+          if (page.autoPipelineMode === 'SKIP_EXISTING' && page.autoPipelineId) {
+            const existing = existingIgContactsMap.get(task.participantId);
+            if (existing) {
+              console.log(`[Background Sync ${jobId}] Skipping IG ${task.participantId} - contact already exists`);
+              return false; // Skip this contact entirely
+            }
+          }
+          return true;
+        });
+
+        console.log(`[Background Sync ${jobId}] ${igTasksToProcess.length} IG participants need processing (${igParticipantTasks.length - igTasksToProcess.length} skipped)`);
+
+        // Update total contacts to include Instagram participants
+        const currentTotal = await prisma.syncJob.findUnique({
+          where: { id: jobId },
+          select: { totalContacts: true },
+        });
+        const newTotal = (currentTotal?.totalContacts || 0) + igTasksToProcess.length;
+        await prisma.syncJob.update({
+          where: { id: jobId },
+          data: {
+            totalContacts: newTotal,
+          },
+        });
+
+        // Initialize concurrency limiters for Instagram
+        const igMessageFetchLimiter = new ConcurrencyLimiter(5);
+        const igAnalysisLimiter = new ConcurrencyLimiter(5);
+
+        // Process in batches to update progress incrementally
+        const IG_BATCH_SIZE = 20; // Process 20 contacts at a time
+        const igBatches = [];
+        for (let i = 0; i < igTasksToProcess.length; i += IG_BATCH_SIZE) {
+          igBatches.push(igTasksToProcess.slice(i, i + IG_BATCH_SIZE));
+        }
+
+        console.log(`[Background Sync ${jobId}] Processing ${igTasksToProcess.length} IG contacts in ${igBatches.length} batches of ${IG_BATCH_SIZE}`);
+
+        // Process each batch
+        for (let batchIndex = 0; batchIndex < igBatches.length; batchIndex++) {
+          const batch = igBatches[batchIndex];
+          
+          // Check if cancelled
+          if (await isJobCancelled(jobId)) {
+            console.log(`[Background Sync ${jobId}] Sync cancelled by user`);
+            return;
+          }
+
+          console.log(`[Background Sync ${jobId}] Processing IG batch ${batchIndex + 1}/${igBatches.length} (${batch.length} contacts)...`);
+
+          // Step 1: Fetch messages for this batch
+          const igMessageResults = await Promise.all(
+            batch.map(task =>
+              igMessageFetchLimiter.execute(async () => {
+                try {
+                  const messages = await client.getAllMessagesForConversation(task.conversationId);
+                  return { task, messages, error: null };
+                } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                  const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+                  return { task, messages: null, error: { message: errorMessage, code: errorCode } };
+                }
+              })
+            )
+          );
+
+          // Step 2: Analyze this batch
+          const igAnalysisResults = await Promise.all(
+            igMessageResults.map(({ task, messages, error }) =>
+              igAnalysisLimiter.execute(async () => {
+                if (error) {
+                  return { task, processed: null, error };
+                }
+
+                if (!messages || messages.length === 0) {
+                  return {
+                    task,
+                    processed: {
+                      participantId: task.participantId,
+                      firstName: `IG User ${task.participantId.slice(-6)}`,
+                      lastName: null,
+                      aiContext: null,
+                      aiAnalysis: null,
+                      lastInteraction: new Date(task.updatedTime),
+                    },
+                    error: null,
+                  };
+                }
+
+                try {
+                  // Extract name
+                  let firstName = `IG User ${task.participantId.slice(-6)}`;
             let lastName: string | null = null;
 
-            if (allMessages && allMessages.length > 0) {
-              const userMessage = allMessages.find(
-                (msg: { from?: { id?: string } }) => msg.from?.id === participant.id
+                  const userMessage = messages.find(
+                    (msg: { from?: { id?: string } }) => msg.from?.id === task.participantId
               );
 
               if (userMessage?.from?.name) {
                 const nameParts = userMessage.from.name.trim().split(' ');
                 firstName = nameParts[0] || firstName;
-
                 if (nameParts.length > 1) {
                   lastName = nameParts.slice(1).join(' ');
                 }
               } else if (userMessage?.from?.username) {
                 firstName = userMessage.from.username;
-              }
             }
 
-            // Analyze conversation with AI if messages exist
+                  // Analyze with AI
             let aiContext: string | null = null;
             let aiAnalysis = null;
             
-            if (allMessages && allMessages.length > 0) {
-              try {
-                console.log(`[Background Sync ${jobId}] Processing ${allMessages.length} IG messages for analysis`);
-                
-                const messagesToAnalyze = allMessages
-                  .filter((msg: any) => msg.message)
-                  .map((msg: any) => ({
+                  const messagesToAnalyze = messages
+                    .filter((msg: { message?: string }) => msg.message)
+                    .map((msg: { 
+                      from?: { name?: string; username?: string; id?: string }; 
+                      message?: string; 
+                      created_time?: string 
+                    }) => ({
                     from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
-                    text: msg.message,
-                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined
+                      text: msg.message || '',
+                      timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
                   }))
-                  .reverse(); // Oldest first for chronological analysis
+                    .reverse(); // Oldest first
 
                 if (messagesToAnalyze.length > 0) {
-                  // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
-                  console.log(`[Background Sync ${jobId}] Analyzing full IG conversation with enhanced fallback...`);
-                  
-                  const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
+                    const { analysis, usedFallback } = await analyzeWithFallback(
                       messagesToAnalyze,
                     page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
-                    new Date(convo.updated_time)
+                      new Date(task.updatedTime)
                     );
                   
                   aiAnalysis = analysis;
                   aiContext = analysis.summary;
                   
                   if (usedFallback) {
-                    console.warn(`[Background Sync ${jobId}] IG: Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
-                  } else {
-                    console.log(`[Background Sync ${jobId}] IG AI Analysis successful:`, {
-                      stage: analysis.recommendedStage,
-                      score: analysis.leadScore,
-                      status: analysis.leadStatus,
-                      confidence: analysis.confidence
-                    });
+                      console.warn(`[Background Sync ${jobId}] IG: Used fallback scoring for ${task.participantId} - Score: ${analysis.leadScore}`);
+                    }
                   }
-                  
-                  // Rate limit delay (shorter since retries are built-in)
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                }
-              } catch (error) {
-                console.error(`[Background Sync ${jobId}] Failed to analyze IG conversation for ${participant.id}:`, error);
-                // Add delay even on error to prevent rapid-fire failures
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            }
 
-              const existingContact = await prisma.contact.findFirst({
+                  return {
+                    task,
+                    processed: {
+                      participantId: task.participantId,
+                      firstName,
+                      lastName,
+                      aiContext,
+                      aiAnalysis,
+                      lastInteraction: new Date(task.updatedTime),
+                    },
+                    error: null,
+                  };
+                } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                  return { task, processed: null, error: { message: errorMessage, code: undefined } };
+                  }
+              })
+            )
+          );
+
+          // Step 3: Save this batch to database
+          await Promise.all(
+            igAnalysisResults.map(({ task, processed, error }) => {
+              if (error) {
+                failedCount++;
+                errors.push({
+                  platform: 'Instagram',
+                  id: task.participantId,
+                  error: error.message,
+                  code: error.code,
+                });
+                if (error.code && error.code === 190) {
+                  tokenExpired = true;
+                }
+                return null;
+              }
+
+              if (!processed) {
+                return null;
+              }
+
+              // Check if contact exists by Instagram ID or Messenger PSID
+              return prisma.contact
+                .findFirst({
                 where: {
                   OR: [
-                    { instagramSID: participant.id, facebookPageId: page.id },
-                    { messengerPSID: participant.id, facebookPageId: page.id },
+                      { instagramSID: task.participantId, facebookPageId: page.id },
+                      { messengerPSID: task.participantId, facebookPageId: page.id },
                   ],
                 },
-              });
-
+                })
+                .then(async (existingContact) => {
               let savedContact;
               if (existingContact) {
                 savedContact = await prisma.contact.update({
                   where: { id: existingContact.id },
                   data: {
-                    instagramSID: participant.id,
-                    firstName: firstName,
-                    lastName: lastName,
+                        instagramSID: task.participantId,
+                        firstName: processed.firstName,
+                        lastName: processed.lastName,
                     hasInstagram: true,
-                    lastInteraction: new Date(convo.updated_time),
-                    aiContext: aiContext,
-                    aiContextUpdatedAt: aiContext ? new Date() : null,
+                        lastInteraction: processed.lastInteraction,
+                        aiContext: processed.aiContext,
+                        aiContextUpdatedAt: processed.aiContext ? new Date() : null,
                   },
                 });
               } else {
                 savedContact = await prisma.contact.create({
                   data: {
-                    instagramSID: participant.id,
-                    firstName: firstName,
-                    lastName: lastName,
+                        instagramSID: task.participantId,
+                        firstName: processed.firstName,
+                        lastName: processed.lastName,
                     hasInstagram: true,
                     organizationId: page.organizationId,
                     facebookPageId: page.id,
-                    lastInteraction: new Date(convo.updated_time),
-                    aiContext: aiContext,
-                    aiContextUpdatedAt: aiContext ? new Date() : null,
+                        lastInteraction: processed.lastInteraction,
+                        aiContext: processed.aiContext,
+                        aiContextUpdatedAt: processed.aiContext ? new Date() : null,
                   },
                 });
               }
               
               // Auto-assign to pipeline if enabled
-              if (aiAnalysis && page.autoPipelineId) {
+                  if (processed.aiAnalysis && page.autoPipelineId) {
                 await autoAssignContactToPipeline({
                   contactId: savedContact.id,
-                  aiAnalysis,
+                      aiAnalysis: processed.aiAnalysis,
                   pipelineId: page.autoPipelineId,
                   updateMode: page.autoPipelineMode,
                 });
               }
               
               syncedCount++;
+                  return savedContact;
+                })
+                .catch((err) => {
+                  failedCount++;
+                  const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                  const errorCode = err instanceof FacebookApiError ? err.code : undefined;
+                  errors.push({
+                    platform: 'Instagram',
+                    id: task.participantId,
+                    error: errorMessage,
+                    code: errorCode,
+                  });
+                  if (err instanceof FacebookApiError && err.isTokenExpired) {
+                    tokenExpired = true;
+                  }
+                  return null;
+                });
+            })
+          );
 
-              // Update job progress periodically
-              if (syncedCount % 10 === 0) {
+          // Update progress after each batch
                 await prisma.syncJob.update({
                   where: { id: jobId },
                   data: {
@@ -473,25 +865,7 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
                     failedContacts: failedCount,
                   },
               });
-            }
-          } catch (error) {
-            failedCount++;
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            const errorCode = error instanceof FacebookApiError ? error.code : undefined;
-
-            if (error instanceof FacebookApiError && error.isTokenExpired) {
-              tokenExpired = true;
-            }
-
-            console.error(`[Background Sync ${jobId}] Failed to sync IG contact ${participant.id}:`, errorMessage);
-            errors.push({
-              platform: 'Instagram',
-              id: participant.id,
-              error: errorMessage,
-              code: errorCode,
-            });
-          }
-        }
+          console.log(`[Background Sync ${jobId}] IG Batch ${batchIndex + 1}/${igBatches.length} complete: ${syncedCount} synced, ${failedCount} failed`);
       }
     } catch (error) {
       const errorCode = error instanceof FacebookApiError ? error.code : undefined;
@@ -578,4 +952,3 @@ export async function getLatestSyncJob(facebookPageId: string) {
     },
   });
 }
-

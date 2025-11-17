@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, cache } from 'react';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -13,7 +13,6 @@ import { ScoreFilter } from '@/components/contacts/score-filter';
 import { StageFilter } from '@/components/contacts/stage-filter';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import { ContactsPagination } from '@/components/contacts/contacts-pagination';
-import { AnalyzeAllButton } from '@/components/contacts/analyze-all-button';
 import { Users, Plus } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -35,6 +34,8 @@ interface SearchParams {
 interface ContactsPageProps {
   searchParams: Promise<SearchParams>;
 }
+
+export const revalidate = 60;
 
 async function getContacts(params: SearchParams) {
   const session = await auth();
@@ -158,9 +159,24 @@ async function getContacts(params: SearchParams) {
       skip,
       take: limit,
       orderBy,
-      include: {
-        stage: true,
-        pipeline: true,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        profilePicUrl: true,
+        hasMessenger: true,
+        hasInstagram: true,
+        leadScore: true,
+        tags: true,
+        lastInteraction: true,
+        createdAt: true,
+        stage: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         facebookPage: {
           select: {
             id: true,
@@ -184,16 +200,16 @@ async function getContacts(params: SearchParams) {
   };
 }
 
-async function getTags() {
+const getTags = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
   return prisma.tag.findMany({
     where: { organizationId: session.user.organizationId },
   });
-    }
+});
 
-async function getPipelines() {
+const getPipelines = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
@@ -205,9 +221,9 @@ async function getPipelines() {
       },
     },
   });
-}
+});
 
-async function getFacebookPages() {
+const getFacebookPages = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
@@ -222,14 +238,18 @@ async function getFacebookPages() {
       instagramUsername: true,
     },
   });
-}
+});
 
-async function ContactsContent({ searchParams }: { searchParams: SearchParams }) {
-  const [{ contacts, pagination }, tags, pipelines] = await Promise.all([
-    getContacts(searchParams),
-    getTags(),
-    getPipelines(),
-  ]);
+async function ContactsContent({ 
+  searchParams, 
+  tags, 
+  pipelines 
+}: { 
+  searchParams: SearchParams;
+  tags: Awaited<ReturnType<typeof getTags>>;
+  pipelines: Awaited<ReturnType<typeof getPipelines>>;
+}) {
+  const { contacts, pagination } = await getContacts(searchParams);
 
   const hasFilters = !!(
     searchParams.search ||
@@ -301,7 +321,6 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
           </p>
         </div>
         <div className="flex gap-2">
-          <AnalyzeAllButton />
           <Button asChild>
             <Link href="/campaigns/new">
               <Plus className="h-4 w-4 mr-2" />
@@ -329,7 +348,7 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
           </div>
         }
       >
-        <ContactsContent searchParams={params} />
+        <ContactsContent searchParams={params} tags={tags} pipelines={pipelines} />
       </Suspense>
     </div>
   );

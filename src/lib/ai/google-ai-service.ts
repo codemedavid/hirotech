@@ -197,16 +197,28 @@ Summary:`;
       return null;
     }
     
-    // Record failure for non-rate-limit errors
-    if (currentKey) {
-      await apiKeyManager.recordFailure(currentKey);
+    // Check for 401 authentication errors - mark key as invalid
+    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
+      console.error('[OpenRouter] 🔐 Authentication failed - Invalid or expired API key');
+      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      
+      // Mark the key as invalid/disabled so it won't be used again
+      if (currentKey) {
+        await apiKeyManager.markInvalid(currentKey, `401 Authentication Error: ${errorMessage}`);
+      }
+      
+      // Try with next API key if we have retries left
+      if (retries > 0) {
+        console.log('[OpenRouter] Trying next API key after authentication failure...');
+        return analyzeConversation(messages, retries - 1);
+      }
+      
+      return null;
     }
     
-    // Check for 401 authentication errors
-    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized')) {
-      console.error('[OpenRouter] 🔐 Authentication failed - Check API key format and validity');
-      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
-      return null;
+    // Record failure for other non-rate-limit errors
+    if (currentKey) {
+      await apiKeyManager.recordFailure(currentKey);
     }
     
     return null;
@@ -640,16 +652,28 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       return null;
     }
     
-    // Record failure for non-rate-limit errors
-    if (currentKey) {
-      await apiKeyManager.recordFailure(currentKey);
+    // Check for 401 authentication errors - mark key as invalid
+    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
+      console.error('[OpenRouter] 🔐 Authentication failed - Invalid or expired API key');
+      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      
+      // Mark the key as invalid/disabled so it won't be used again
+      if (currentKey) {
+        await apiKeyManager.markInvalid(currentKey, `401 Authentication Error: ${errorMessage}`);
+      }
+      
+      // Try with next API key if we have retries left
+      if (retries > 0) {
+        console.log('[OpenRouter] Trying next API key after authentication failure...');
+        return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
+      }
+      
+      return null;
     }
     
-    // Check for 401 authentication errors
-    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized')) {
-      console.error('[OpenRouter] 🔐 Authentication failed - Check API key format and validity');
-      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
-      return null;
+    // Record failure for other non-rate-limit errors
+    if (currentKey) {
+      await apiKeyManager.recordFailure(currentKey);
     }
     
     return null;

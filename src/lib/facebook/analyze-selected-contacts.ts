@@ -1,0 +1,361 @@
+import { prisma } from '@/lib/db';
+import { FacebookClient, FacebookApiError } from './client';
+import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
+import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
+
+/**
+ * Concurrency limiter utility for parallel operations
+ */
+class ConcurrencyLimiter {
+  private queue: Array<{ 
+    fn: () => Promise<unknown>; 
+    resolve: (value: unknown) => void; 
+    reject: (error: unknown) => void 
+  }> = [];
+  private running = 0;
+
+  constructor(private limit: number) {}
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push({ 
+        fn: fn as () => Promise<unknown>, 
+        resolve: resolve as (value: unknown) => void, 
+        reject: reject as (error: unknown) => void 
+      });
+      this.process();
+    });
+  }
+
+  private async process() {
+    while (this.running < this.limit && this.queue.length > 0) {
+      const task = this.queue.shift();
+      if (!task) break;
+
+      this.running++;
+      
+      task.fn()
+        .then((result) => {
+          task.resolve(result);
+        })
+        .catch((error) => {
+          task.reject(error);
+        })
+        .finally(() => {
+          this.running--;
+          this.process();
+        });
+    }
+  }
+}
+
+interface AnalyzeSelectedContactsResult {
+  successCount: number;
+  failedCount: number;
+  errors: Array<{ contactId: string; error: string }>;
+}
+
+/**
+ * Analyzes selected contacts by fetching their conversations and assigning to pipeline
+ */
+export async function analyzeSelectedContacts(
+  contactIds: string[],
+  organizationId: string
+): Promise<AnalyzeSelectedContactsResult> {
+  let successCount = 0;
+  let failedCount = 0;
+  const errors: Array<{ contactId: string; error: string }> = [];
+
+  console.log(`[Analyze Selected] Starting analysis for ${contactIds.length} contacts`);
+
+  // Fetch contacts with their Facebook page info
+  const contacts = await prisma.contact.findMany({
+    where: {
+      id: { in: contactIds },
+      organizationId,
+    },
+    include: {
+      facebookPage: {
+        include: {
+          autoPipeline: {
+            include: {
+              stages: { orderBy: { order: 'asc' } }
+            }
+          }
+        }
+      }
+    },
+  });
+
+  if (contacts.length === 0) {
+    return { successCount: 0, failedCount: 0, errors: [] };
+  }
+
+  // Group contacts by Facebook page (to reuse client and conversations)
+  const contactsByPage = new Map<string, typeof contacts>();
+  for (const contact of contacts) {
+    const pageId = contact.facebookPageId;
+    if (!contactsByPage.has(pageId)) {
+      contactsByPage.set(pageId, []);
+    }
+    contactsByPage.get(pageId)!.push(contact);
+  }
+
+  // Process each page's contacts
+  for (const [pageId, pageContacts] of contactsByPage) {
+    const page = pageContacts[0].facebookPage;
+    
+    if (!page.autoPipelineId || !page.autoPipeline) {
+      console.log(`[Analyze Selected] Page ${page.pageName} has no auto-pipeline configured, skipping`);
+      for (const contact of pageContacts) {
+        failedCount++;
+        errors.push({
+          contactId: contact.id,
+          error: 'Auto-pipeline not configured for this page',
+        });
+      }
+      continue;
+    }
+
+    const client = new FacebookClient(page.pageAccessToken);
+
+    // Build list of participant IDs we need to find
+    const neededParticipantIds = new Set<string>();
+    for (const contact of pageContacts) {
+      if (contact.messengerPSID) neededParticipantIds.add(contact.messengerPSID);
+      if (contact.instagramSID) neededParticipantIds.add(contact.instagramSID);
+    }
+
+    // Fetch conversations incrementally, stopping when we find all needed participants
+    console.log(`[Analyze Selected] Fetching conversations for page ${page.pageName} (looking for ${neededParticipantIds.size} participants)...`);
+    const messengerConvos = await client.getMessengerConversationsUntilFound(
+      page.pageId,
+      neededParticipantIds
+    );
+    console.log(`[Analyze Selected] Fetched ${messengerConvos.length} Messenger conversations (stopped early when all participants found)`);
+    
+    // Create conversation maps - only for participants we need
+    const messengerConversationMap = new Map<string, { conversationId: string; updatedTime: string }>();
+    let foundCount = 0;
+    for (const convo of messengerConvos) {
+      // Early exit if we've found all needed participants
+      if (foundCount >= neededParticipantIds.size) {
+        console.log(`[Analyze Selected] Found all ${foundCount} participants, skipping remaining conversations`);
+        break;
+      }
+
+      for (const participant of convo.participants.data) {
+        if (participant.id !== page.pageId && neededParticipantIds.has(participant.id)) {
+          const existing = messengerConversationMap.get(participant.id);
+          if (!existing || new Date(convo.updated_time) > new Date(existing.updatedTime)) {
+            messengerConversationMap.set(participant.id, {
+              conversationId: convo.id,
+              updatedTime: convo.updated_time,
+            });
+            if (!existing) foundCount++;
+          }
+        }
+      }
+    }
+    console.log(`[Analyze Selected] Found conversations for ${messengerConversationMap.size} Messenger participants`);
+
+    // Fetch Instagram conversations if connected - only for needed participants
+    const instagramConversationMap = new Map<string, { conversationId: string; updatedTime: string }>();
+    if (page.instagramAccountId) {
+      try {
+        const igConvos = await client.getInstagramConversationsUntilFound(
+          page.instagramAccountId,
+          neededParticipantIds
+        );
+        console.log(`[Analyze Selected] Fetched ${igConvos.length} Instagram conversations (stopped early when all participants found)`);
+        let igFoundCount = 0;
+        for (const convo of igConvos) {
+          // Early exit if we've found all needed participants
+          if (igFoundCount >= neededParticipantIds.size) {
+            console.log(`[Analyze Selected] Found all ${igFoundCount} IG participants, skipping remaining conversations`);
+            break;
+          }
+
+          for (const participant of convo.participants.data) {
+            if (participant.id !== page.instagramAccountId && neededParticipantIds.has(participant.id)) {
+              const existing = instagramConversationMap.get(participant.id);
+              if (!existing || new Date(convo.updated_time) > new Date(existing.updatedTime)) {
+                instagramConversationMap.set(participant.id, {
+                  conversationId: convo.id,
+                  updatedTime: convo.updated_time,
+                });
+                if (!existing) igFoundCount++;
+              }
+            }
+          }
+        }
+        console.log(`[Analyze Selected] Found conversations for ${instagramConversationMap.size} Instagram participants`);
+      } catch (error) {
+        console.error(`[Analyze Selected] Failed to fetch Instagram conversations:`, error);
+      }
+    }
+
+    // Process contacts in batches - larger batches and higher concurrency for speed
+    const BATCH_SIZE = 10; // Larger batches for faster processing
+    const batches = [];
+    for (let i = 0; i < pageContacts.length; i += BATCH_SIZE) {
+      batches.push(pageContacts.slice(i, i + BATCH_SIZE));
+    }
+
+    const conversationFetchLimiter = new ConcurrencyLimiter(5); // Higher concurrency
+    const analysisLimiter = new ConcurrencyLimiter(5); // Higher concurrency
+
+    for (const batch of batches) {
+      // Step 1: Fetch conversations and messages
+      const conversationResults = await Promise.all(
+        batch.map(contact =>
+          conversationFetchLimiter.execute(async () => {
+            try {
+              // Find conversation ID
+              let conversationInfo = contact.messengerPSID 
+                ? messengerConversationMap.get(contact.messengerPSID)
+                : null;
+
+              if (!conversationInfo && contact.instagramSID) {
+                conversationInfo = instagramConversationMap.get(contact.instagramSID);
+              }
+
+              if (!conversationInfo) {
+                return { contact, messages: null, error: 'Conversation not found' };
+              }
+
+              // Use recent messages only (last 100) for faster analysis
+              const messages = await client.getRecentMessagesForConversation(conversationInfo.conversationId, 100);
+              return { contact, messages, error: null };
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              return { contact, messages: null, error: errorMessage };
+            }
+          })
+        )
+      );
+
+      // Step 2: Analyze
+      const analysisResults = await Promise.all(
+        conversationResults.map(({ contact, messages, error }) =>
+          analysisLimiter.execute(async () => {
+            if (error) {
+              return { contact, analysis: null, error };
+            }
+
+            if (!messages || messages.length === 0) {
+              return { contact, analysis: null, error: 'No messages found' };
+            }
+
+            try {
+              // Prepare messages for analysis
+              const messagesToAnalyze = messages
+                .filter((msg: { message?: string }) => msg.message)
+                .map((msg: { 
+                  from?: { name?: string; username?: string; id?: string }; 
+                  message?: string; 
+                  created_time?: string 
+                }) => ({
+                  from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
+                  text: msg.message || '',
+                  timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
+                }))
+                .reverse();
+
+              if (messagesToAnalyze.length === 0) {
+                return { contact, analysis: null, error: 'No valid messages to analyze' };
+              }
+
+              // Analyze with AI
+              const { analysis } = await analyzeWithFallback(
+                messagesToAnalyze,
+                page.autoPipeline.stages,
+                contact.lastInteraction || undefined
+              );
+
+              return { contact, analysis, error: null };
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              return { contact, analysis: null, error: errorMessage };
+            }
+          })
+        )
+      );
+
+      // Step 3: Update contacts and assign to pipeline
+      await Promise.all(
+        analysisResults.map(async ({ contact, analysis, error }) => {
+          if (error) {
+            failedCount++;
+            errors.push({ contactId: contact.id, error });
+            return;
+          }
+
+          if (!analysis) {
+            failedCount++;
+            errors.push({ contactId: contact.id, error: 'No analysis result' });
+            return;
+          }
+
+          try {
+            // Update contact with AI context
+            try {
+              await prisma.contact.update({
+                where: { id: contact.id },
+                data: {
+                  aiContext: analysis.summary,
+                  aiContextUpdatedAt: new Date(),
+                },
+              });
+            } catch (dbError: any) {
+              // Handle database connection errors
+              if (dbError?.code === 'P1001' || dbError?.message?.includes("Can't reach database")) {
+                console.error(`[Analyze Selected] Database connection error for contact ${contact.id}:`, dbError.message);
+                failedCount++;
+                errors.push({ 
+                  contactId: contact.id, 
+                  error: 'Database connection failed. Please try again.' 
+                });
+                return; // Skip pipeline assignment if DB update failed
+              }
+              throw dbError; // Re-throw other errors
+            }
+
+            // Assign to pipeline
+            try {
+              await autoAssignContactToPipeline({
+                contactId: contact.id,
+                aiAnalysis: analysis,
+                pipelineId: page.autoPipelineId!,
+                updateMode: page.autoPipelineMode,
+              });
+            } catch (pipelineError: any) {
+              // Handle database connection errors during pipeline assignment
+              if (pipelineError?.code === 'P1001' || pipelineError?.message?.includes("Can't reach database")) {
+                console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineError.message);
+                // Contact was updated but pipeline assignment failed - still count as partial success
+                failedCount++;
+                errors.push({ 
+                  contactId: contact.id, 
+                  error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+                });
+                return;
+              }
+              throw pipelineError; // Re-throw other errors
+            }
+
+            successCount++;
+          } catch (error) {
+            failedCount++;
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            errors.push({ contactId: contact.id, error: errorMessage });
+          }
+        })
+      );
+    }
+  }
+
+  console.log(`[Analyze Selected] Completed: ${successCount} analyzed, ${failedCount} failed`);
+  return { successCount, failedCount, errors };
+}
+

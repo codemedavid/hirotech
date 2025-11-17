@@ -116,6 +116,12 @@ model Contact {
   @@index([pipelineId, stageId])
   @@index([leadStatus])
   @@index([organizationId])
+  @@index([createdAt])
+  @@index([firstName])
+  @@index([leadScore])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, leadScore])
+  @@index([organizationId, firstName])
 }
 
 model Tag {

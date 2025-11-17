@@ -40,6 +40,7 @@ import {
   MoveRight,
   ArrowUpDown,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryState } from 'nuqs';
@@ -221,11 +222,23 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
       const result = await response.json();
 
       if (response.ok) {
-        toast.success(
-          `Successfully ${action === 'delete' ? 'deleted' : 'updated'} ${
-            selectedIds.size
-          } contact(s)`
-        );
+        if (action === 'analyze') {
+          const analyzed = result.analyzed || 0;
+          const failed = result.failed || 0;
+          if (analyzed > 0) {
+            toast.success(
+              `Successfully analyzed ${analyzed} contact(s)${failed > 0 ? ` (${failed} failed)` : ''}`
+            );
+          } else {
+            toast.error(`Failed to analyze contacts${failed > 0 ? `: ${failed} failed` : ''}`);
+          }
+        } else {
+          toast.success(
+            `Successfully ${action === 'delete' ? 'deleted' : 'updated'} ${
+              selectedIds.size
+            } contact(s)`
+          );
+        }
         setSelectedIds(new Set());
         router.refresh();
       } else {
@@ -327,6 +340,16 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
             </div>
 
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkAction('analyze')}
+                disabled={bulkActionLoading}
+                className="bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/40"
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                Analyze
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" disabled={bulkActionLoading}>
