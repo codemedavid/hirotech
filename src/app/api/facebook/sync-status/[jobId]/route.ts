@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
-import { getSyncJobStatus } from '@/lib/facebook/background-sync';
 
 export async function GET(
   request: NextRequest,
@@ -16,17 +15,27 @@ export async function GET(
     const params = await props.params;
     const { jobId } = params;
 
-    const job = await getSyncJobStatus(jobId);
-
-    // Verify the job belongs to a page in the user's organization
-    const page = await prisma.facebookPage.findFirst({
-      where: {
-        id: job.facebookPageId,
-        organizationId: session.user.organizationId,
+    // Optimize: Combine both queries into one with a join to avoid sequential database calls
+    const job = await prisma.syncJob.findUnique({
+      where: { id: jobId },
+      include: {
+        facebookPage: {
+          select: {
+            organizationId: true,
+          },
+        },
       },
     });
 
-    if (!page) {
+    if (!job) {
+      return NextResponse.json(
+        { error: 'Sync job not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify the job belongs to a page in the user's organization
+    if (job.facebookPage.organizationId !== session.user.organizationId) {
       return NextResponse.json(
         { error: 'Unauthorized access to sync job' },
         { status: 403 }
