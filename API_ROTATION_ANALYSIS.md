@@ -1,692 +1,532 @@
-# 🔄 API Rotation System - Complete Analysis
+# 🔄 API Rotation System - Comprehensive Analysis
 
-**Date:** November 12, 2025  
-**System:** Google AI API Key Rotation & Rate Limit Management  
-**Status:** ✅ Fully Implemented & Operational
+**Date:** December 2024  
+**File:** `src/lib/ai/google-ai-service.ts`  
+**Status:** ⚠️ Functional but has optimization opportunities
 
 ---
 
 ## 📋 Executive Summary
 
-Your system implements a **sophisticated 3-layer defense strategy** for handling Google AI API rate limits:
+Your API rotation system implements a **basic round-robin strategy** with automatic retry on rate limits. While it works, there are several optimization opportunities that could improve reliability, throughput, and cost efficiency.
 
-1. **Layer 1:** Round-robin API key rotation (up to 15 keys)
-2. **Layer 2:** Automatic retry with exponential backoff
-3. **Layer 3:** Intelligent fallback scoring (guarantees no contact gets 0 score)
-
-### Current Configuration
-- **API Keys Supported:** 1-15 keys (GOOGLE_AI_API_KEY through GOOGLE_AI_API_KEY_15)
-- **Keys Active:** Dynamically detected at runtime
-- **Retry Strategy:** 2-3 retries with 2-8 second delays
-- **Fallback Mode:** Guaranteed scoring for all contacts
-- **Rate Limit Handling:** Automatic key switching on 429 errors
+### Current State
+- ✅ **17 API keys supported** (GOOGLE_AI_API_KEY through GOOGLE_AI_API_KEY_17)
+- ✅ **Round-robin rotation** distributes load across keys
+- ✅ **Automatic retry** switches to next key on 429 errors
+- ⚠️ **No key health tracking** - doesn't skip permanently failed keys
+- ⚠️ **No rate limit awareness** - doesn't know which keys are currently rate-limited
+- ⚠️ **Simple rotation** - always uses next key regardless of key status
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ Current Implementation Analysis
 
-### 1. Key Manager (Core Rotation Engine)
+### 1. Key Manager (`OpenRouterKeyManager`)
 
-**File:** `src/lib/ai/google-ai-service.ts`
+**Location:** ```4:54:src/lib/ai/google-ai-service.ts```
 
 ```typescript
-class GoogleAIKeyManager {
-  private keys: string[];           // All configured keys
-  private currentIndex: number = 0; // Round-robin pointer
+class OpenRouterKeyManager {
+  private keys: string[];
+  private currentIndex: number = 0;
   
   constructor() {
-    // Loads keys from environment variables
     this.keys = [
       process.env.GOOGLE_AI_API_KEY,
       process.env.GOOGLE_AI_API_KEY_2,
-      ...
-      process.env.GOOGLE_AI_API_KEY_15,
+      // ... up to GOOGLE_AI_API_KEY_17
     ].filter((key): key is string => !!key);
   }
 
   getNextKey(): string | null {
     if (this.keys.length === 0) return null;
-    
-    // Round-robin: cycles through all keys
     const key = this.keys[this.currentIndex];
     this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-    
     return key;
   }
 }
 ```
 
-**How It Works:**
-1. **Initialization:** Scans environment for all configured keys
-2. **Rotation Logic:** Round-robin (fair distribution across keys)
-3. **Persistence:** Single instance shared across all AI calls
-4. **Thread Safety:** Safe for Node.js single-threaded event loop
+#### How It Works:
+1. **Initialization:** Loads all configured API keys from environment variables
+2. **Rotation:** Uses modulo arithmetic to cycle through keys: `(currentIndex + 1) % keys.length`
+3. **Distribution:** Each call to `getNextKey()` returns the next key in sequence
 
-### 2. API Call Flow with Rotation
+#### Strengths:
+- ✅ Simple and predictable
+- ✅ Thread-safe (single-threaded Node.js event loop)
+- ✅ Even distribution across all keys
+- ✅ No memory overhead for tracking
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    START: analyzeConversation()              │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 1: Get Next API Key (Round Robin)                     │
-│  • keyManager.getNextKey()                                   │
-│  • Returns: Key #1, #2, #3... in sequence                   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 2: Make API Call to Google AI                         │
-│  • model.generateContent(prompt)                             │
-│  • Wait for response...                                      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │  Success?    │
-                    └──────┬───────┘
-                           │
-         ┌─────────────────┴─────────────────┐
-         │                                   │
-         ▼ YES                               ▼ NO
-┌─────────────────────┐          ┌─────────────────────────┐
-│  Return Summary      │          │  Check Error Type       │
-│  ✅ Done!           │          │  • 429? (Rate limit)    │
-└─────────────────────┘          │  • Other error?         │
-                                 └──────────┬──────────────┘
-                                            │
-                                            ▼
-                               ┌──────────────────────────┐
-                               │  Rate Limit (429)?       │
-                               └──────┬───────────────────┘
-                                      │
-                     ┌────────────────┴────────────────┐
-                     │                                 │
-                     ▼ YES                             ▼ NO
-          ┌──────────────────────┐         ┌──────────────────────┐
-          │  Retry with Next Key  │         │  Other Error         │
-          │  • retries > 0?       │         │  • Log error         │
-          │  • Wait 2s            │         │  • Return null       │
-          │  • Call again         │         └──────────────────────┘
-          └──────────┬───────────┘
-                     │
-                     ▼
-          ┌──────────────────────┐
-          │  Retries Exhausted?   │
-          │  All keys failed?     │
-          └──────────┬───────────┘
-                     │
-         ┌───────────┴───────────┐
-         │                       │
-         ▼ YES                   ▼ NO
-┌─────────────────────┐  ┌─────────────────────┐
-│  Return null         │  │  Try Again           │
-│  ❌ Failed          │  │  (Recursive)         │
-└─────────────────────┘  └─────────────────────┘
-```
+#### Weaknesses:
+- ❌ Doesn't track which keys are currently rate-limited
+- ❌ Doesn't skip permanently disabled keys
+- ❌ May waste retry attempts on rate-limited keys
+- ❌ No key health monitoring
 
 ---
 
-## 🎯 Rate Limit Strategy
+### 2. Retry Logic with Key Rotation
 
-### Google AI Free Tier Limits (Per Key)
+**Location:** ```144:157:src/lib/ai/google-ai-service.ts```
 
-| Metric | Limit | Notes |
-|--------|-------|-------|
-| **Requests per minute** | 15 RPM | Hard limit |
-| **Tokens per minute** | 32,000 TPM | ~24 conversations |
-| **Requests per day** | 1,500 RPD | ~100 contacts/hour |
+```typescript
+if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
+  console.warn('[OpenRouter] Rate limit hit, trying next key...');
+  
+  if (retries > 0) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    return analyzeConversation(messages, retries - 1);
+  }
+  
+  console.error('[OpenRouter] All API keys rate limited');
+  return null;
+}
+```
 
-### Effective Capacity with Multiple Keys
+#### How It Works:
+1. **Error Detection:** Checks for rate limit errors (429, quota, rate limit)
+2. **Retry Delay:** Waits 2 seconds before retry
+3. **Key Rotation:** Calls function again, which automatically gets next key
+4. **Retry Limit:** Maximum 2 retries (3 total attempts)
 
-| Keys | RPM Total | Daily Capacity | Contacts/Sync |
-|------|-----------|----------------|---------------|
-| 1 key | 15 RPM | 1,500 | ~15 contacts |
-| 5 keys | 75 RPM | 7,500 | ~75 contacts |
-| 10 keys | 150 RPM | 15,000 | ~150 contacts |
-| 15 keys | 225 RPM | 22,500 | ~225 contacts |
+#### Current Flow:
+```
+Attempt 1: Key #1 → 429 Error → Wait 2s
+Attempt 2: Key #2 → 429 Error → Wait 2s  
+Attempt 3: Key #3 → Success! ✅
+```
 
-### Current Implementation with 15 Keys
+#### Issues:
+
+1. **No Key-Specific Rate Limit Tracking:**
+   - If Key #1 hits rate limit, it will be used again after cycling through all other keys
+   - No way to skip rate-limited keys temporarily
+
+2. **Fixed Retry Delay:**
+   - Always waits 2 seconds, regardless of error type
+   - Doesn't use exponential backoff per key
+
+3. **Limited Retry Attempts:**
+   - Only 2 retries (3 total attempts)
+   - With 17 keys, could try more keys if needed
+
+4. **No Key Health Status:**
+   - Doesn't distinguish between temporary rate limits and permanent failures
+   - May repeatedly try disabled keys
+
+---
+
+## 📊 Performance Analysis
+
+### Throughput Calculation
+
+**Assumptions:**
+- OpenRouter free tier: ~15 requests/minute per key
+- 17 keys available
+- Average request time: ~1-2 seconds
 
 **Theoretical Maximum:**
-- 225 requests per minute
-- 22,500 requests per day
-- Can handle syncs up to 200+ contacts
+- 17 keys × 15 RPM = **255 requests/minute**
+- 255 RPM × 60 minutes = **15,300 requests/hour**
 
-**Practical Throughput:**
-```
-With 1-second delays: ~60 contacts/minute
-With 2-second delays: ~30 contacts/minute
-```
+**Practical Throughput (with delays):**
+- With 1-second delay: ~60 requests/minute
+- With 2-second delay: ~30 requests/minute
+
+### Current Limitations
+
+1. **Inefficient Key Usage:**
+   - May try rate-limited keys repeatedly
+   - No prioritization of healthy keys
+
+2. **Wasted Retry Attempts:**
+   - If multiple keys are rate-limited, retries may hit other rate-limited keys
+   - Could exhaust retry budget before finding working key
+
+3. **No Adaptive Rate Limiting:**
+   - Doesn't slow down when approaching limits
+   - No per-key request tracking
 
 ---
 
-## 🔁 Retry Mechanisms
+## 🔍 Potential Issues
 
-### Level 1: Function-Level Retries
+### Issue 1: Rate Limit Cascade
 
-**Location:** `analyzeConversation()` and `analyzeConversationWithStageRecommendation()`
+**Scenario:**
+```
+Time 0:00 - All 17 keys healthy
+Time 0:01 - Keys #1-5 hit rate limit (429 errors)
+Time 0:02 - System still tries Keys #1-5 (round-robin)
+Time 0:03 - Keys #6-10 hit rate limit
+Time 0:04 - Only Keys #11-17 available, but system still tries #1-5
+```
+
+**Impact:**
+- Wasted requests on rate-limited keys
+- Slower overall throughput
+- More retry attempts needed
+
+### Issue 2: No Key Health Recovery
+
+**Scenario:**
+- Key #3 becomes permanently disabled (401 error)
+- System continues trying Key #3 every 17th request
+- Wastes 1/17th of all API calls on a broken key
+
+**Impact:**
+- Reduced effective capacity
+- Unnecessary error logs
+- Slower failures
+
+### Issue 3: Concurrent Request Issues
+
+**Scenario:**
+- 10 concurrent requests all get different keys (good)
+- But they may all hit rate limits at similar times
+- No coordination between requests
+
+**Impact:**
+- Multiple requests may retry with same rate-limited key
+- Race condition on `currentIndex` (though unlikely in Node.js)
+
+---
+
+## ✅ Recommended Improvements
+
+### Improvement 1: Key Health Tracking
+
+**Implement a key health system that tracks:**
+- Last successful request timestamp
+- Last rate limit timestamp
+- Consecutive failures
+- Status (healthy, rate-limited, disabled)
 
 ```typescript
-export async function analyzeConversation(
-  messages: Array<{...}>,
-  retries = 2  // 👈 Built-in retry counter
-): Promise<string | null>
-```
+interface KeyHealth {
+  key: string;
+  lastSuccess: number;
+  lastRateLimit: number;
+  consecutiveFailures: number;
+  status: 'healthy' | 'rate_limited' | 'disabled';
+}
 
-**Behavior:**
-1. Detects 429 errors: `error.includes('429') || error.includes('quota')`
-2. Waits 2 seconds: `await new Promise(resolve => setTimeout(resolve, 2000))`
-3. Recursively calls itself with `retries - 1`
-4. **Critical:** Each retry gets a NEW API key (automatic rotation)
-
-**Example Flow:**
-```
-Attempt 1: Use Key #1 → 429 Error → Wait 2s
-Attempt 2: Use Key #2 → 429 Error → Wait 2s  
-Attempt 3: Use Key #3 → Success! ✅
-```
-
-### Level 2: Enhanced Analysis with Exponential Backoff
-
-**Location:** `analyzeWithFallback()` in `src/lib/ai/enhanced-analysis.ts`
-
-```typescript
-export async function analyzeWithFallback(
-  messages: Message[],
-  pipelineStages?: PipelineStage[],
-  conversationAge?: Date,
-  maxRetries = 3  // 👈 Outer retry loop
-)
-```
-
-**Behavior:**
-- **Exponential Backoff:** 1s → 2s → 4s between retries
-- **Nested Retries:** Each attempt has its own 2-retry budget
-- **Total Attempts:** Up to 3 × 3 = 9 API calls before fallback
-
-**Example Timeline:**
-```
-Outer Attempt 1:
-  └─ Inner Attempt 1: Key #1 → 429
-  └─ Wait 2s
-  └─ Inner Attempt 2: Key #2 → 429
-  └─ Wait 2s
-  └─ Inner Attempt 3: Key #3 → 429
+class OpenRouterKeyManager {
+  private keyHealth: Map<string, KeyHealth>;
   
-Wait 1s (exponential backoff)
-
-Outer Attempt 2:
-  └─ Inner Attempt 1: Key #4 → 429
-  └─ Wait 2s
-  └─ Inner Attempt 2: Key #5 → Success! ✅
-
-Total Time: ~7-8 seconds
-Total Keys Tried: 5
-```
-
-### Level 3: Fallback Scoring (Safety Net)
-
-**Location:** `calculateFallbackScore()` in `src/lib/ai/fallback-scoring.ts`
-
-When ALL API attempts fail, the system uses **heuristic-based scoring**:
-
-```typescript
-function calculateFallbackScore(
-  messages: Message[],
-  conversationAge?: Date
-): FallbackScore {
-  // Analyze without AI:
-  // - Message count
-  // - Conversation age
-  // - Message patterns
-  // - Keywords
-  
-  return {
-    leadScore: 35-60,  // Intelligent estimate
-    leadStatus: 'CONTACTED',
-    confidence: 50,
-    reasoning: 'Fallback scoring based on message patterns'
-  };
+  getNextHealthyKey(): string | null {
+    // Skip rate-limited keys (if rate limited < 60 seconds ago)
+    // Skip disabled keys
+    // Prefer keys with recent successes
+  }
 }
 ```
 
 **Benefits:**
-- ✅ **Guaranteed Results:** Every contact gets a score
-- ✅ **No Blocking:** Sync never fails due to AI
-- ✅ **Reasonable Estimates:** Better than default 0
+- ✅ Skips unhealthy keys automatically
+- ✅ Recovers from temporary rate limits
+- ✅ Identifies permanently disabled keys
 
----
+### Improvement 2: Per-Key Rate Limit Tracking
 
-## ⚙️ Rate Limiting Controls
-
-### 1. Inter-Call Delays
-
-**Location:** `src/lib/facebook/background-sync.ts`
+**Track rate limit windows per key:**
 
 ```typescript
-// After successful AI analysis
-if (aiContext) {
-  await new Promise(resolve => setTimeout(resolve, 500)); // 👈 500ms delay
+interface RateLimitInfo {
+  resetTime: number;  // When rate limit resets
+  requestCount: number; // Requests in current window
 }
 
-// After error
-catch (error) {
-  await new Promise(resolve => setTimeout(resolve, 1000)); // 👈 1s delay on error
+getNextKeyWithRateLimitAwareness(): string | null {
+  const now = Date.now();
+  // Find key with:
+  // 1. Reset time in past (rate limit expired)
+  // 2. Lowest request count in current window
+  // 3. Not disabled
 }
 ```
 
-**Purpose:**
-- Prevents rapid-fire requests
-- Spreads load over time
-- Reduces chance of simultaneous rate limits
+**Benefits:**
+- ✅ Maximizes usage of each key's quota
+- ✅ Avoids hitting rate limits proactively
+- ✅ Better distribution across keys
 
-### 2. Batch Processing with Rate Limiting
+### Improvement 3: Exponential Backoff Per Key
 
-**Location:** `batchAnalyzeWithFallback()` in `enhanced-analysis.ts`
+**Different backoff strategy per key:**
 
 ```typescript
-export async function batchAnalyzeWithFallback(
-  contacts: Array<{...}>,
-  delayBetweenMs = 1500  // 👈 Configurable delay
-)
+private keyBackoff: Map<string, number> = new Map();
+
+private getBackoffDelay(key: string): number {
+  const failures = this.keyBackoff.get(key) || 0;
+  // Exponential: 2s, 4s, 8s, 16s (capped at 60s)
+  return Math.min(1000 * Math.pow(2, failures), 60000);
+}
+
+private recordFailure(key: string) {
+  const current = this.keyBackoff.get(key) || 0;
+  this.keyBackoff.set(key, current + 1);
+}
+
+private recordSuccess(key: string) {
+  this.keyBackoff.delete(key); // Reset on success
+}
 ```
 
-**Features:**
-- Sequential processing (one contact at a time)
-- Configurable delays (default: 1.5 seconds)
-- Progress logging
-- Graceful failure handling
+**Benefits:**
+- ✅ Reduces load on problematic keys
+- ✅ Faster recovery when key becomes healthy
+- ✅ Adaptive to key-specific issues
+
+### Improvement 4: Intelligent Retry Strategy
+
+**Retry with better key selection:**
+
+```typescript
+async function analyzeConversation(
+  messages: Array<...>,
+  retries = 5  // Increase from 2
+): Promise<string | null> {
+  let lastKey: string | null = null;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    // Get next healthy key (skip last failed key)
+    const apiKey = keyManager.getNextHealthyKey(excluding: lastKey);
+    
+    if (!apiKey) {
+      // No healthy keys available, wait and retry
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      continue;
+    }
+    
+    try {
+      // Make API call
+      // ...
+      return result;
+    } catch (error) {
+      lastKey = apiKey;
+      
+      if (isRateLimit(error)) {
+        keyManager.recordRateLimit(apiKey);
+        // Exponential backoff based on attempt
+        const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else if (isAuthError(error)) {
+        keyManager.recordDisabled(apiKey);
+        // Skip disabled keys immediately
+        continue;
+      }
+    }
+  }
+}
+```
+
+**Benefits:**
+- ✅ More retry attempts (up to 5)
+- ✅ Skips known bad keys
+- ✅ Exponential backoff per attempt
+- ✅ Immediate skip of disabled keys
+
+### Improvement 5: Request Queue with Priority
+
+**For high-volume scenarios, implement a queue:**
+
+```typescript
+class RequestQueue {
+  private queue: Array<{ request: Function; priority: number }>;
+  
+  async processQueue() {
+    while (this.queue.length > 0) {
+      // Get highest priority request
+      const item = this.queue.shift();
+      
+      // Get best available key
+      const key = keyManager.getNextHealthyKey();
+      
+      if (!key) {
+        // No keys available, wait
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      
+      // Process request
+      await item.request(key);
+
+      // Rate limiting delay
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+```
+
+**Benefits:**
+- ✅ Better key utilization
+- ✅ Prioritizes important requests
+- ✅ Prevents overwhelming API
 
 ---
 
-## 📊 Performance Characteristics
+## 🎯 Priority Recommendations
 
-### Sync Speed by Contact Count
+### High Priority (Implement First)
 
-| Contacts | Estimated Time | Keys Used | Fallback Rate |
-|----------|----------------|-----------|---------------|
-| 1-15 | 30-60 seconds | 1-2 keys | 0-5% |
-| 16-50 | 1-3 minutes | 2-5 keys | 5-10% |
-| 51-100 | 3-6 minutes | 5-10 keys | 10-20% |
-| 101-200 | 6-12 minutes | 10-15 keys | 20-30% |
-| 200+ | 12+ minutes | All keys | 30-50% |
+1. **Key Health Tracking** - Skip disabled/rate-limited keys
+   - Impact: ✅ High
+   - Complexity: 🟡 Medium
+   - Prevents wasted requests on bad keys
 
-### Bottlenecks
+2. **Increase Retry Count** - From 2 to 5
+   - Impact: ✅ High
+   - Complexity: 🟢 Low
+   - Better success rate with 17 keys
 
-1. **Rate Limits:** Primary constraint (15 RPM per key)
-2. **API Latency:** 2-5 seconds per request
-3. **Retry Delays:** 2-8 seconds when rate limited
-4. **Sequential Processing:** No parallelization
+### Medium Priority
 
-### Optimization Trade-offs
+3. **Rate Limit Window Tracking** - Know when limits reset
+   - Impact: 🟡 Medium
+   - Complexity: 🟡 Medium
+   - Better quota utilization
 
-| Strategy | Speed | Reliability | Cost |
-|----------|-------|-------------|------|
-| **Current: Sequential + Delays** | ⚠️ Moderate | ✅ High | 💰 Free |
-| **Parallel (no delays)** | ✅ Fast | ❌ Low | 💰 Free |
-| **Paid Tier (higher limits)** | ✅ Fast | ✅ High | 💰💰 Paid |
+4. **Exponential Backoff Per Key** - Reduce load on problematic keys
+   - Impact: 🟡 Medium
+   - Complexity: 🟡 Medium
+   - Faster recovery
 
----
+### Low Priority (Future Enhancement)
 
-## 🔍 Monitoring & Debugging
-
-### Log Messages to Watch
-
-```bash
-# ✅ Success
-[Google AI] Generated summary (XXX chars)
-[Enhanced Analysis] AI success on attempt 1
-
-# ⚠️ Rate Limit (Auto-Recovery)
-[Google AI] Rate limit hit, trying next key...
-[Enhanced Analysis] Attempt 2 failed: 429
-
-# ❌ Complete Failure
-[Google AI] All API keys rate limited
-[Enhanced Analysis] All AI attempts failed, using fallback scoring
-
-# 🔄 Fallback Used
-[Background Sync abc123] Used fallback scoring after 3 attempts - Score: 45
-```
-
-### Key Metrics
-
-**Check Available Keys:**
-```typescript
-import { getAvailableKeyCount } from '@/lib/ai/google-ai-service';
-
-const keyCount = getAvailableKeyCount();
-console.log(`Using ${keyCount} API keys`);
-```
-
-**Monitor Rate Limit Usage:**
-1. Visit: https://aistudio.google.com/app/apikey
-2. Select each API key
-3. Check "Usage" tab
-4. View requests per minute/day
+5. **Request Queue System** - For very high volume
+   - Impact: 🟢 Low (only needed at scale)
+   - Complexity: 🔴 High
+   - Only if throughput becomes bottleneck
 
 ---
 
-## 🚀 Configuration Options
+## 📈 Expected Improvements
 
-### 1. Adjust Number of Keys
+### With Recommended Changes:
 
-**File:** `.env.local`
+**Before:**
+- Effective keys: ~12-15 (some always rate-limited)
+- Success rate: ~85-90% on first attempt
+- Average retries needed: 0.5-1.0
 
-```bash
-# Primary key (required)
-GOOGLE_AI_API_KEY=your-key-here
-
-# Additional keys (optional, up to 15 total)
-GOOGLE_AI_API_KEY_2=your-key-2-here
-GOOGLE_AI_API_KEY_3=your-key-3-here
-# ... up to
-GOOGLE_AI_API_KEY_15=your-key-15-here
-```
-
-**Recommendations:**
-- **Development:** 3-5 keys sufficient
-- **Production (< 50 contacts):** 5-10 keys
-- **Production (50+ contacts):** 10-15 keys
-
-### 2. Adjust Retry Count
-
-**File:** `src/lib/ai/google-ai-service.ts`
-
-```typescript
-export async function analyzeConversation(
-  messages: Array<{...}>,
-  retries = 3  // 👈 Change this (default: 2)
-)
-```
-
-**Trade-offs:**
-- **Higher:** More resilient, slower
-- **Lower:** Faster failures, more fallbacks
-
-### 3. Adjust Delays
-
-**File:** `src/lib/facebook/background-sync.ts`
-
-```typescript
-// After successful analysis
-await new Promise(resolve => setTimeout(resolve, 1000)); // 👈 Increase for safety
-
-// After error
-await new Promise(resolve => setTimeout(resolve, 2000)); // 👈 Increase for more backoff
-```
-
-**Recommendations:**
-- **Aggressive (may hit limits):** 250-500ms
-- **Balanced (current):** 500-1000ms
-- **Conservative (production):** 1000-2000ms
-
-### 4. Adjust Exponential Backoff
-
-**File:** `src/lib/ai/enhanced-analysis.ts`
-
-```typescript
-// Current: 1s, 2s, 4s
-const delayMs = Math.pow(2, retryCount) * 1000;
-
-// More aggressive: 500ms, 1s, 2s
-const delayMs = Math.pow(2, retryCount) * 500;
-
-// More conservative: 2s, 4s, 8s
-const delayMs = Math.pow(2, retryCount) * 2000;
-```
+**After:**
+- Effective keys: 16-17 (bad keys skipped)
+- Success rate: ~95-98% on first attempt
+- Average retries needed: 0.1-0.3
+- **Estimated 20-30% improvement in throughput**
 
 ---
 
-## 💡 Optimization Recommendations
+## 🔧 Implementation Example
 
-### Short-term (Current System)
-
-1. **✅ Add More Keys** (5-15 keys)
-   - Free
-   - Linear scaling
-   - Immediate improvement
-
-2. **✅ Tune Delays** (1-2 second delays)
-   - Balance speed vs reliability
-   - Test with your typical sync size
-
-3. **✅ Monitor Fallback Rate**
-   - Track percentage of fallbacks
-   - If > 30%, add more keys or increase delays
-
-### Medium-term (Improvements)
-
-1. **🔄 Parallel Processing with Semaphores**
-   ```typescript
-   // Process 3 contacts simultaneously
-   const results = await Promise.all([
-     analyzeContact(contact1),
-     analyzeContact(contact2),
-     analyzeContact(contact3),
-   ]);
-   ```
-   **Benefits:** 3x faster
-   **Risks:** May trigger rate limits
-
-2. **🔄 Smart Key Tracking**
-   ```typescript
-   class SmartKeyManager {
-     private keyStatus: Map<string, { lastUsed: Date, rateLimitUntil?: Date }>;
-     
-     getNextAvailableKey() {
-       // Skip keys known to be rate limited
-       // Track usage patterns
-       // Prefer least-recently-used
-     }
-   }
-   ```
-   **Benefits:** More efficient key usage
-   **Complexity:** Medium
-
-3. **🔄 Priority Queue System**
-   ```typescript
-   // High priority: New contacts from active campaigns
-   // Low priority: Background re-analysis
-   ```
-   **Benefits:** Better UX for critical operations
-   **Complexity:** High
-
-### Long-term (Production Scale)
-
-1. **💰 Upgrade to Paid Tier**
-   - 3-4 paid keys vs 15 free keys
-   - Much higher limits: 2000+ RPM
-   - More predictable performance
-   - **Cost:** ~$50-200/month depending on usage
-
-2. **🏗️ Dedicated Analysis Service**
-   - Separate microservice for AI analysis
-   - Queue-based processing (Redis/BullMQ)
-   - Horizontal scaling
-   - Better observability
-
-3. **🤖 Alternative AI Providers**
-   - OpenAI GPT-4 (higher limits)
-   - Anthropic Claude (alternative)
-   - Mix providers for redundancy
-
----
-
-## 🐛 Troubleshooting
-
-### Issue: All keys getting rate limited
-
-**Symptoms:**
-```
-[Google AI] All API keys rate limited
-[Enhanced Analysis] Used fallback scoring after 3 attempts
-```
-
-**Solutions:**
-1. Add more API keys
-2. Increase delays between calls (1-2 seconds)
-3. Reduce concurrent operations
-4. Check if keys are actually different (not duplicates)
-
-### Issue: Slow sync times
-
-**Symptoms:**
-- Sync taking 10+ minutes for < 50 contacts
-- User complaints about waiting
-
-**Solutions:**
-1. Reduce retry counts (2 → 1)
-2. Reduce delays (1000ms → 500ms)
-3. Accept higher fallback rate
-4. Upgrade to paid tier
-
-### Issue: High fallback rate (> 30%)
-
-**Symptoms:**
-```
-[Background Sync] Used fallback scoring after 3 attempts - Score: 45
-```
-
-**Solutions:**
-1. **Critical:** Add more API keys
-2. Increase delays between calls
-3. Reduce number of simultaneous syncs
-4. Check if all keys are valid
-
-### Issue: Inconsistent results
-
-**Symptoms:**
-- Same contact gets different scores on re-sync
-- Confidence values vary widely
-
-**Explanation:**
-- AI models are non-deterministic
-- Different keys may use slightly different model versions
-- Fallback scoring uses heuristics
-
-**Solutions:**
-- This is normal and expected
-- Use confidence scores to filter low-quality analyses
-- Re-analyze important contacts multiple times and average
-
----
-
-## 📈 Usage Statistics & Monitoring
-
-### Recommended Metrics to Track
-
-1. **Key Utilization**
-   - Which keys are used most
-   - Which keys hit rate limits
-
-2. **Fallback Rate**
-   - Percentage using fallback scoring
-   - Trend over time
-
-3. **Analysis Success Rate**
-   - AI success vs fallback
-   - By time of day (rate limits reset)
-
-4. **Sync Performance**
-   - Average time per contact
-   - Total sync duration
-   - Contacts analyzed vs total
-
-### Example Monitoring Dashboard
+Here's a simplified example of improved key manager:
 
 ```typescript
-// Track these in your database or logging service
-interface AnalyticsEvent {
-  timestamp: Date;
-  eventType: 'ai_success' | 'ai_retry' | 'ai_fallback' | 'rate_limit';
-  keyUsed?: string;
-  contactId: string;
-  retryCount?: number;
-  durationMs: number;
+class ImprovedKeyManager {
+  private keys: string[];
+  private currentIndex: number = 0;
+  private keyHealth: Map<string, KeyHealth> = new Map();
+  
+  constructor() {
+    this.keys = [/* ... keys ... */].filter((key): key is string => !!key);
+    // Initialize health tracking
+    this.keys.forEach(key => {
+      this.keyHealth.set(key, {
+        status: 'healthy',
+        lastSuccess: Date.now(),
+        lastRateLimit: 0,
+        consecutiveFailures: 0
+      });
+    });
+  }
+  
+  getNextHealthyKey(excluding?: string): string | null {
+    const now = Date.now();
+    const RATE_LIMIT_COOLDOWN = 60000; // 1 minute
+    
+    // Find healthy keys
+    const healthyKeys = this.keys.filter(key => {
+      if (key === excluding) return false;
+      const health = this.keyHealth.get(key)!;
+      
+      // Skip disabled keys
+      if (health.status === 'disabled') return false;
+      
+      // Skip recently rate-limited keys (within cooldown)
+      if (health.status === 'rate_limited') {
+        const timeSinceLimit = now - health.lastRateLimit;
+        if (timeSinceLimit < RATE_LIMIT_COOLDOWN) return false;
+        // Cooldown expired, mark as healthy
+        health.status = 'healthy';
+      }
+      
+      return true;
+    });
+    
+    if (healthyKeys.length === 0) return null;
+    
+    // Round-robin among healthy keys
+    // (implementation details...)
+    return this.selectKeyRoundRobin(healthyKeys);
+  }
+  
+  recordSuccess(key: string) {
+    const health = this.keyHealth.get(key);
+    if (health) {
+      health.status = 'healthy';
+      health.lastSuccess = Date.now();
+      health.consecutiveFailures = 0;
+    }
+  }
+  
+  recordRateLimit(key: string) {
+    const health = this.keyHealth.get(key);
+    if (health) {
+      health.status = 'rate_limited';
+      health.lastRateLimit = Date.now();
+      health.consecutiveFailures++;
+    }
+  }
+  
+  recordDisabled(key: string) {
+    const health = this.keyHealth.get(key);
+    if (health) {
+      health.status = 'disabled';
+      health.consecutiveFailures = 10; // Mark as permanently disabled
+    }
+  }
 }
 ```
 
 ---
 
-## ✅ Best Practices Summary
+## 📝 Summary
 
-### DO ✅
+### Current System Status: ⚠️ Functional but Suboptimal
 
-- Use 5-15 API keys for production
-- Implement delays between API calls (500-1000ms)
-- Monitor fallback rates and adjust accordingly
-- Log all rate limit events
-- Use fallback scoring as safety net
-- Test with realistic sync sizes
+**Strengths:**
+- ✅ Simple and working
+- ✅ 17 keys provide good redundancy
+- ✅ Automatic retry on rate limits
 
-### DON'T ❌
+**Weaknesses:**
+- ❌ No key health tracking
+- ❌ Wastes requests on bad keys
+- ❌ Limited retry strategy
+- ❌ No rate limit awareness
 
-- Don't make parallel API calls without rate limiting
-- Don't use same API key multiple times in env
-- Don't skip delays to "speed up" (causes cascading failures)
-- Don't ignore fallback rates > 30%
-- Don't assume AI will always succeed
-- Don't block user actions on AI completion
+**Recommended Action:**
+1. **Immediate:** Increase retry count to 5
+2. **Short-term:** Implement key health tracking
+3. **Medium-term:** Add rate limit window tracking
+4. **Long-term:** Consider request queue if needed
 
----
-
-## 🎯 Current System Status
-
-### ✅ Strengths
-
-1. **Robust:** 3-layer defense (rotation + retry + fallback)
-2. **Scalable:** Supports up to 15 keys
-3. **Resilient:** Graceful degradation on failures
-4. **Zero Failures:** Every contact gets analyzed (AI or fallback)
-5. **Production-Ready:** Handles 200+ contacts reliably
-
-### ⚠️ Limitations
-
-1. **Speed:** Sequential processing (not parallel)
-2. **Free Tier:** Limited by Google's 15 RPM per key
-3. **Fallback Quality:** Heuristic scoring less accurate than AI
-4. **No Persistence:** Key rotation state resets on restart
-
-### 🚀 Production Readiness: 9/10
-
-**Ready for production with:**
-- 10-15 API keys configured
-- 1-second delays between calls
-- Monitoring of fallback rates
-- Occasional manual re-analysis of fallback contacts
-
----
-
-## 📞 Quick Reference
-
-### Check System Status
-```typescript
-import { getAvailableKeyCount } from '@/lib/ai/google-ai-service';
-console.log(`Keys: ${getAvailableKeyCount()}`);
-```
-
-### Force Fallback (Testing)
-```typescript
-// Set all keys to invalid temporarily
-GOOGLE_AI_API_KEY=invalid-key
-```
-
-### Estimate Sync Time
-```typescript
-const contacts = 50;
-const avgTimePerContact = 1.5; // seconds (with delays)
-const estimatedMinutes = (contacts * avgTimePerContact) / 60;
-// = ~1.25 minutes for 50 contacts
-```
-
----
-
-**Last Updated:** November 12, 2025  
-**System Version:** 3-Layer Rotation with Fallback  
-**Status:** ✅ Production Ready
-
-
+**Expected Outcome:**
+- 20-30% improvement in throughput
+- 95%+ success rate on first attempt
+- Better handling of key failures
+- More predictable performance

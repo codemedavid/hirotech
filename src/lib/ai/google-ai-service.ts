@@ -1,49 +1,41 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
+import apiKeyManager from './api-key-manager';
 
-// API Key rotation manager
-class GoogleAIKeyManager {
-  private keys: string[];
-  private currentIndex: number = 0;
+// Store current key for tracking purposes
+let currentKey: string | null = null;
 
-  constructor() {
-    this.keys = [
-      process.env.GOOGLE_AI_API_KEY,
-      process.env.GOOGLE_AI_API_KEY_2,
-      process.env.GOOGLE_AI_API_KEY_3,
-      process.env.GOOGLE_AI_API_KEY_4,
-      process.env.GOOGLE_AI_API_KEY_5,
-      process.env.GOOGLE_AI_API_KEY_6,
-      process.env.GOOGLE_AI_API_KEY_7,
-      process.env.GOOGLE_AI_API_KEY_8,
-      process.env.GOOGLE_AI_API_KEY_9,
-      process.env.GOOGLE_AI_API_KEY_10,
-      process.env.GOOGLE_AI_API_KEY_11,
-      process.env.GOOGLE_AI_API_KEY_12,
-      process.env.GOOGLE_AI_API_KEY_13,
-      process.env.GOOGLE_AI_API_KEY_14,
-      process.env.GOOGLE_AI_API_KEY_15,
-      process.env.GOOGLE_AI_API_KEY_16,
-      process.env.GOOGLE_AI_API_KEY_17,
-    ].filter((key): key is string => !!key);
+const RATE_LIMIT_RETRY_DELAY_MS = 6000; // 6 seconds between retries
+const MAX_ATTEMPTS_PER_KEY = 3;
 
-    if (this.keys.length === 0) {
-      console.warn('[Google AI] No API keys configured');
-    }
-  }
+const PRIMARY_MODEL = 'google/gemini-2.0-flash-exp:free';
+const FALLBACK_MODELS = [
+  'openai/gpt-oss-20b:free',
+  'mistralai/mistral-small-3.1-24b-instruct:free',
+  'deepseek/deepseek-chat-v3.1:free',
+];
 
-  getNextKey(): string | null {
-    if (this.keys.length === 0) return null;
-    const key = this.keys[this.currentIndex];
-    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-    return key;
-  }
-
-  getKeyCount(): number {
-    return this.keys.length;
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const keyManager = new GoogleAIKeyManager();
+// Helper function to create OpenAI client configured for OpenRouter
+function createOpenRouterClient(apiKey: string): OpenAI {
+  const siteUrl = process.env.OPENROUTER_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://hiro.app';
+  const siteName = process.env.OPENROUTER_SITE_NAME || 'Hiro';
+  
+  console.log(`[OpenRouter] Creating client with baseURL: https://openrouter.ai/api/v1`);
+  console.log(`[OpenRouter] Headers - HTTP-Referer: ${siteUrl}, X-Title: ${siteName}`);
+  console.log(`[OpenRouter] API Key length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...`);
+  
+  return new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: apiKey,
+    defaultHeaders: {
+      'HTTP-Referer': siteUrl,
+      'X-Title': siteName,
+    },
+  });
+}
 
 export async function analyzeConversation(
   messages: Array<{
@@ -53,15 +45,29 @@ export async function analyzeConversation(
   }>,
   retries = 2
 ): Promise<string | null> {
-  const apiKey = keyManager.getNextKey();
+  const apiKey = await apiKeyManager.getNextKey();
   if (!apiKey) {
-    console.error('[Google AI] No API key available');
+    console.error('[OpenRouter] No API key available');
     return null;
   }
 
+  return analyzeConversationWithKey(apiKey, messages, retries, 0);
+}
+
+async function analyzeConversationWithKey(
+  apiKey: string,
+  messages: Array<{
+    from: string;
+    text: string;
+    timestamp?: Date;
+  }>,
+  retries: number,
+  keyAttempts: number
+): Promise<string | null> {
+  currentKey = apiKey;
+
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const openai = createOpenRouterClient(apiKey);
 
     // Format conversation for AI
     const conversationText = messages
@@ -79,35 +85,136 @@ ${conversationText}
 
 Summary:`;
 
-    const result = await model.generateContent(prompt);
-    const summary = result.response.text();
-    
-    console.log(`[Google AI] Generated summary (${summary.length} chars)`);
-    return summary.trim();
-  } catch (error: unknown) {
-    // Check if it's a rate limit error (429)
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage?.includes('429') || errorMessage?.includes('quota')) {
-      console.warn('[Google AI] Rate limit hit, trying next key...');
-      
-      // Try with next API key if we have retries left
-      if (retries > 0) {
-        // Wait a bit before retry
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return analyzeConversation(messages, retries - 1);
+    const modelsToTry = [PRIMARY_MODEL, ...FALLBACK_MODELS];
+    let lastRateLimitError: Error | null = null;
+    let completion;
+
+    for (const model of modelsToTry) {
+      try {
+        console.log(
+          `[OpenRouter] Sending request - Model: ${model}, Messages: ${messages.length}`
+        );
+
+        completion = await openai.chat.completions.create({
+          model,
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+        });
+
+        console.log(
+          `[OpenRouter] Received response - Model: ${model}, Choices: ${
+            completion.choices?.length || 0
+          }, Usage: ${JSON.stringify(completion.usage || {})}`
+        );
+        lastRateLimitError = null;
+        break;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (
+          errorMessage?.includes('429') ||
+          errorMessage?.includes('quota') ||
+          errorMessage?.includes('rate limit')
+        ) {
+          console.warn(
+            `[OpenRouter] Model ${model} hit rate limit, trying next fallback model...`
+          );
+          lastRateLimitError =
+            error instanceof Error ? error : new Error(String(error));
+          continue;
+        }
+
+        // Non rate-limit error – rethrow and let outer handler manage it
+        throw error;
       }
-      
-      console.error('[Google AI] All API keys rate limited');
+    }
+
+    if (!completion) {
+      if (lastRateLimitError) {
+        throw lastRateLimitError;
+      }
+      throw new Error('[OpenRouter] All models failed without a usable response');
+    }
+
+    console.log(`[OpenRouter] Received response - Choices: ${completion.choices?.length || 0}, Usage: ${JSON.stringify(completion.usage || {})}`);
+
+    const summary = completion.choices[0]?.message?.content;
+    if (!summary) {
+      console.error('[OpenRouter] No response content received. Full response:', JSON.stringify(completion, null, 2));
       return null;
     }
     
-    console.error('[Google AI] Analysis failed:', errorMessage);
+    console.log(`[OpenRouter] ✅ Generated summary (${summary.length} chars)`);
+    
+    // Record success
+    if (currentKey) {
+      await apiKeyManager.recordSuccess(currentKey);
+    }
+    
+    return summary.trim();
+  } catch (error: unknown) {
+    // Enhanced error logging
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorDetails = error instanceof Error ? {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+    } : { raw: String(error) };
+    
+    console.error('[OpenRouter] ❌ Analysis failed:', errorMessage);
+    console.error('[OpenRouter] Error details:', JSON.stringify(errorDetails, null, 2));
+    
+    // Check if it's a rate limit error (429)
+    if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
+      const attemptNumber = keyAttempts + 1;
+      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+        console.warn(
+          `[OpenRouter] Rate limit hit for current key, retrying same key (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+        );
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+        return analyzeConversationWithKey(apiKey, messages, retries, keyAttempts + 1);
+      }
+
+      console.warn(
+        '[OpenRouter] Rate limit persists after multiple attempts, marking key as rate-limited and rotating...'
+      );
+      
+      // Mark key as rate-limited
+      if (currentKey) {
+        await apiKeyManager.markRateLimited(currentKey);
+      }
+      
+      // Try with next API key if we have retries left
+      if (retries > 0) {
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+        return analyzeConversation(messages, retries - 1);
+      }
+      
+      console.error('[OpenRouter] All API keys rate limited');
+      return null;
+    }
+    
+    // Record failure for non-rate-limit errors
+    if (currentKey) {
+      await apiKeyManager.recordFailure(currentKey);
+    }
+    
+    // Check for 401 authentication errors
+    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized')) {
+      console.error('[OpenRouter] 🔐 Authentication failed - Check API key format and validity');
+      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      return null;
+    }
+    
     return null;
   }
 }
 
-export function getAvailableKeyCount(): number {
-  return keyManager.getKeyCount();
+export async function getAvailableKeyCount(): Promise<number> {
+  return await apiKeyManager.getKeyCount();
 }
 
 // Generate follow-up message for AI automation
@@ -123,15 +230,36 @@ export async function generateFollowUpMessage(
   languageStyle?: string | null,
   retries = 2
 ): Promise<AIFollowUpResult | null> {
-  const apiKey = keyManager.getNextKey();
+  const apiKey = await apiKeyManager.getNextKey();
   if (!apiKey) {
-    console.error('[Google AI] No API key available');
+    console.error('[OpenRouter] No API key available');
     return null;
   }
 
+  return generateFollowUpWithKey(
+    apiKey,
+    contactName,
+    conversationHistory,
+    customPrompt,
+    languageStyle,
+    retries,
+    0
+  );
+}
+
+async function generateFollowUpWithKey(
+  apiKey: string,
+  contactName: string,
+  conversationHistory: Array<{ from: string; text: string; timestamp?: Date }>,
+  customPrompt: string | null | undefined,
+  languageStyle: string | null | undefined,
+  retries: number,
+  keyAttempts: number
+): Promise<AIFollowUpResult | null> {
+  currentKey = apiKey;
+
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const openai = createOpenRouterClient(apiKey);
 
     // Format conversation history
     const historyText = conversationHistory
@@ -166,37 +294,98 @@ Respond ONLY with valid JSON (no markdown, no explanation):
   "reasoning": "brief explanation of why this message was chosen"
 }`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    const completion = await openai.chat.completions.create({
+      model: 'google/gemini-2.0-flash-exp:free',
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const text = completion.choices[0]?.message?.content?.trim();
+    if (!text) {
+      console.error('[OpenRouter] No response content received');
+      return null;
+    }
     
     // Parse JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[Google AI] No JSON found in response');
+      console.error('[OpenRouter] No JSON found in response');
       return null;
     }
     
     const followUp = JSON.parse(jsonMatch[0]) as AIFollowUpResult;
-    console.log(`[Google AI] Generated follow-up message for ${contactName}: "${followUp.message}"`);
+    console.log(
+      `[OpenRouter] Generated follow-up message for ${contactName}: "${followUp.message}"`
+    );
+    
+    // Record success
+    if (currentKey) {
+      await apiKeyManager.recordSuccess(currentKey);
+    }
     
     return followUp;
   } catch (error: unknown) {
     // Check if it's a rate limit error (429)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage?.includes('429') || errorMessage?.includes('quota')) {
-      console.warn('[Google AI] Rate limit hit, trying next key...');
+    if (
+      errorMessage?.includes('429') ||
+      errorMessage?.includes('quota') ||
+      errorMessage?.includes('rate limit')
+    ) {
+      const attemptNumber = keyAttempts + 1;
+      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+        console.warn(
+          `[OpenRouter] Rate limit hit for current key (follow-up), retrying same key (attempt ${
+            attemptNumber + 1
+          }/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+        );
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+        return generateFollowUpWithKey(
+          apiKey,
+          contactName,
+          conversationHistory,
+          customPrompt,
+          languageStyle,
+          retries,
+          keyAttempts + 1
+        );
+      }
+
+      console.warn(
+        '[OpenRouter] Rate limit persists for follow-up after multiple attempts, marking key and rotating...'
+      );
+      
+      // Mark key as rate-limited
+      if (currentKey) {
+        await apiKeyManager.markRateLimited(currentKey);
+      }
       
       // Try with next API key if we have retries left
       if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return generateFollowUpMessage(contactName, conversationHistory, customPrompt, languageStyle, retries - 1);
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+        return generateFollowUpMessage(
+          contactName,
+          conversationHistory,
+          customPrompt,
+          languageStyle,
+          retries - 1
+        );
       }
       
-      console.error('[Google AI] All API keys rate limited');
+      console.error('[OpenRouter] All API keys rate limited');
       return null;
     }
     
-    console.error('[Google AI] Follow-up generation failed:', errorMessage);
+    // Record failure
+    if (currentKey) {
+      await apiKeyManager.recordFailure(currentKey);
+    }
+    
+    console.error('[OpenRouter] Follow-up generation failed:', errorMessage);
     return null;
   }
 }
@@ -222,15 +411,38 @@ export async function analyzeConversationWithStageRecommendation(
   }>,
   retries = 2
 ): Promise<AIContactAnalysis | null> {
-  const apiKey = keyManager.getNextKey();
+  const apiKey = await apiKeyManager.getNextKey();
   if (!apiKey) {
-    console.error('[Google AI] No API key available');
+    console.error('[OpenRouter] No API key available');
     return null;
   }
 
+  return analyzeConversationWithStageAndKey(
+    apiKey,
+    messages,
+    pipelineStages,
+    retries,
+    0
+  );
+}
+
+async function analyzeConversationWithStageAndKey(
+  apiKey: string,
+  messages: Array<{ from: string; text: string; timestamp?: Date }>,
+  pipelineStages: Array<{ 
+    name: string; 
+    type: string; 
+    description?: string | null;
+    leadScoreMin?: number;
+    leadScoreMax?: number;
+  }>,
+  retries: number,
+  keyAttempts: number
+): Promise<AIContactAnalysis | null> {
+  currentKey = apiKey;
+
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const openai = createOpenRouterClient(apiKey);
 
     const conversationText = messages
       .map(msg => `${msg.from}: ${msg.text}`)
@@ -302,38 +514,144 @@ Respond ONLY with valid JSON (no markdown, no explanation):
   "reasoning": "brief explanation of stage choice and score"
 }`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    const modelsToTry = [PRIMARY_MODEL, ...FALLBACK_MODELS];
+    let lastRateLimitError: Error | null = null;
+    let completion;
+
+    for (const model of modelsToTry) {
+      try {
+        console.log(
+          `[OpenRouter] Sending stage recommendation request - Model: ${model}, Stages: ${pipelineStages.length}`
+        );
+    
+        completion = await openai.chat.completions.create({
+          model,
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+        });
+
+        console.log(
+          `[OpenRouter] Received response - Model: ${model}, Choices: ${
+            completion.choices?.length || 0
+          }, Usage: ${JSON.stringify(completion.usage || {})}`
+        );
+        lastRateLimitError = null;
+        break;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (
+          errorMessage?.includes('429') ||
+          errorMessage?.includes('quota') ||
+          errorMessage?.includes('rate limit')
+        ) {
+          console.warn(
+            `[OpenRouter] Model ${model} hit rate limit (stage recommendation), trying next fallback model...`
+          );
+          lastRateLimitError =
+            error instanceof Error ? error : new Error(String(error));
+          continue;
+        }
+
+        // Non rate-limit error – rethrow and let outer handler manage it
+        throw error;
+      }
+    }
+
+    if (!completion) {
+      if (lastRateLimitError) {
+        throw lastRateLimitError;
+      }
+      throw new Error(
+        '[OpenRouter] All models failed for stage recommendation without a usable response'
+      );
+    }
+
+    const text = completion.choices[0]?.message?.content?.trim();
+    if (!text) {
+      console.error('[OpenRouter] No response content received. Full response:', JSON.stringify(completion, null, 2));
+      return null;
+    }
     
     // Parse JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[Google AI] No JSON found in response');
+      console.error('[OpenRouter] No JSON found in response. Raw text:', text.substring(0, 200));
       return null;
     }
     
     const analysis = JSON.parse(jsonMatch[0]) as AIContactAnalysis;
-    console.log(`[Google AI] Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%)`);
+    console.log(`[OpenRouter] ✅ Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%, score: ${analysis.leadScore})`);
+    
+    // Record success
+    if (currentKey) {
+      await apiKeyManager.recordSuccess(currentKey);
+    }
     
     return analysis;
   } catch (error: unknown) {
-    // Check if it's a rate limit error (429)
+    // Enhanced error logging
     const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage?.includes('429') || errorMessage?.includes('quota')) {
-      console.warn('[Google AI] Rate limit hit, trying next key...');
+    const errorDetails = error instanceof Error ? {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+    } : { raw: String(error) };
+    
+    console.error('[OpenRouter] ❌ Stage recommendation failed:', errorMessage);
+    console.error('[OpenRouter] Error details:', JSON.stringify(errorDetails, null, 2));
+    
+    // Check if it's a rate limit error (429)
+    if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
+      const attemptNumber = keyAttempts + 1;
+      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+        console.warn(
+          `[OpenRouter] Rate limit hit for current key (stage recommendation), retrying same key (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+        );
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+        return analyzeConversationWithStageAndKey(
+          apiKey,
+          messages,
+          pipelineStages,
+          retries,
+          keyAttempts + 1
+        );
+      }
+
+      console.warn(
+        '[OpenRouter] Rate limit persists for stage recommendation after multiple attempts, marking key and rotating...'
+      );
+      
+      // Mark key as rate-limited
+      if (currentKey) {
+        await apiKeyManager.markRateLimited(currentKey);
+      }
       
       // Try with next API key if we have retries left
       if (retries > 0) {
-        // Wait a bit before retry
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
       }
       
-      console.error('[Google AI] All API keys rate limited');
+      console.error('[OpenRouter] All API keys rate limited');
       return null;
     }
     
-    console.error('[Google AI] Analysis failed:', errorMessage);
+    // Record failure for non-rate-limit errors
+    if (currentKey) {
+      await apiKeyManager.recordFailure(currentKey);
+    }
+    
+    // Check for 401 authentication errors
+    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized')) {
+      console.error('[OpenRouter] 🔐 Authentication failed - Check API key format and validity');
+      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      return null;
+    }
+    
     return null;
   }
 }
@@ -347,28 +665,25 @@ export interface PersonalizedMessageContext {
 }
 
 export class GoogleAIService {
-  private keyManager: GoogleAIKeyManager;
-
-  constructor() {
-    this.keyManager = keyManager;
-  }
+  private currentKey: string | null = null;
 
   async generatePersonalizedMessage(
     context: PersonalizedMessageContext,
     retries = 2
   ): Promise<string> {
-    const apiKey = this.keyManager.getNextKey();
+    const apiKey = await apiKeyManager.getNextKey();
     if (!apiKey) {
-      console.error('[Google AI] No API key available');
+      console.error('[OpenRouter] No API key available');
       // Fallback to template
       return context.templateMessage
         .replace(/\{firstName\}/g, context.contactName)
         .replace(/\{name\}/g, context.contactName);
     }
 
+    this.currentKey = apiKey;
+
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+      const openai = createOpenRouterClient(apiKey);
 
       const historyText = context.conversationHistory.length > 0
         ? context.conversationHistory
@@ -396,24 +711,57 @@ Create a natural, personalized version of the template message that:
 
 Respond with ONLY the personalized message text (no JSON, no markdown, no explanation).`;
 
-      const result = await model.generateContent(prompt);
-      const personalizedMessage = result.response.text().trim();
+      const completion = await openai.chat.completions.create({
+        model: 'google/gemini-2.0-flash-exp:free',
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      });
 
-      console.log(`[Google AI] Generated personalized message for ${context.contactName}`);
+      const personalizedMessage = completion.choices[0]?.message?.content?.trim();
+      if (!personalizedMessage) {
+        console.error('[OpenRouter] No response content received');
+        // Fallback to template
+        return context.templateMessage
+          .replace(/\{firstName\}/g, context.contactName)
+          .replace(/\{name\}/g, context.contactName);
+      }
+
+      console.log(`[OpenRouter] Generated personalized message for ${context.contactName}`);
+      
+      // Record success
+      if (this.currentKey) {
+        await apiKeyManager.recordSuccess(this.currentKey);
+      }
+      
       return personalizedMessage;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage?.includes('429') || errorMessage?.includes('quota')) {
-        console.warn('[Google AI] Rate limit hit, trying next key...');
+      if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
+        console.warn(
+          `[OpenRouter] Rate limit hit for current key (personalization), marking key and rotating after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+        );
+
+        // Mark key as rate-limited
+        if (this.currentKey) {
+          await apiKeyManager.markRateLimited(this.currentKey);
+        }
 
         if (retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await sleep(RATE_LIMIT_RETRY_DELAY_MS);
           return this.generatePersonalizedMessage(context, retries - 1);
         }
 
-        console.error('[Google AI] All API keys rate limited');
+        console.error('[OpenRouter] All API keys rate limited');
       } else {
-        console.error('[Google AI] Personalization failed:', errorMessage);
+        // Record failure
+        if (this.currentKey) {
+          await apiKeyManager.recordFailure(this.currentKey);
+        }
+        console.error('[OpenRouter] Personalization failed:', errorMessage);
       }
 
       // Fallback to template
@@ -423,4 +771,3 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
     }
   }
 }
-
