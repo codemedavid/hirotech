@@ -1,10 +1,34 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 interface PipelineUpdate {
   type: 'contact_changed' | 'pipeline_changed' | 'stage_changed' | 'automation_changed';
   timestamp: number;
   pipelineId?: string; // For filtering
+}
+
+interface Pipeline {
+  id: string;
+  [key: string]: unknown;
+}
+
+interface PipelineStage {
+  id: string;
+  pipelineId: string;
+  [key: string]: unknown;
+}
+
+interface PipelineAutomation {
+  id: string;
+  pipelineId: string;
+  [key: string]: unknown;
+}
+
+interface Contact {
+  id: string;
+  pipelineId?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -54,8 +78,8 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
           schema: 'public',
           table: 'Pipeline'
         },
-        (payload) => {
-          const changedPipelineId = payload.new?.id || payload.old?.id;
+        (payload: RealtimePostgresChangesPayload<Pipeline>) => {
+          const changedPipelineId = (payload.new as Pipeline)?.id || (payload.old as Pipeline)?.id;
           if (changedPipelineId === pipelineId) {
             console.log('[Supabase Realtime] Pipeline changed:', payload.eventType);
             setUpdateSignal({
@@ -78,8 +102,8 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
           schema: 'public',
           table: 'PipelineStage'
         },
-        (payload) => {
-          const changedPipelineId = payload.new?.pipelineId || payload.old?.pipelineId;
+        (payload: RealtimePostgresChangesPayload<PipelineStage>) => {
+          const changedPipelineId = (payload.new as PipelineStage)?.pipelineId || (payload.old as PipelineStage)?.pipelineId;
           if (changedPipelineId === pipelineId) {
             console.log('[Supabase Realtime] Stage changed:', payload.eventType);
             setUpdateSignal({
@@ -102,8 +126,8 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
           schema: 'public',
           table: 'PipelineAutomation'
         },
-        (payload) => {
-          const changedPipelineId = payload.new?.pipelineId || payload.old?.pipelineId;
+        (payload: RealtimePostgresChangesPayload<PipelineAutomation>) => {
+          const changedPipelineId = (payload.new as PipelineAutomation)?.pipelineId || (payload.old as PipelineAutomation)?.pipelineId;
           if (changedPipelineId === pipelineId) {
             console.log('[Supabase Realtime] Automation changed:', payload.eventType);
             setUpdateSignal({
@@ -127,7 +151,7 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
           table: 'Contact',
           filter: `pipelineId=eq.${pipelineId}`
         },
-        (payload) => {
+        (payload: RealtimePostgresChangesPayload<Contact>) => {
           console.log('[Supabase Realtime] Contact changed:', payload.eventType);
           setUpdateSignal({
             type: 'contact_changed',

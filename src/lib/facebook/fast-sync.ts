@@ -8,6 +8,12 @@ interface FastSyncResult {
   message: string;
 }
 
+interface ParticipantInfo {
+  participantId: string;
+  updatedTime: string;
+  name?: string;
+}
+
 /**
  * Concurrency limiter utility for parallel operations
  */
@@ -208,12 +214,6 @@ async function executeFastSync(jobId: string, facebookPageId: string): Promise<v
       console.log(`[Fast Sync ${jobId}] Fetched ${messengerConvos.length} Messenger conversations`);
 
       // Collect all unique participants from all conversations
-      interface ParticipantInfo {
-        participantId: string;
-        updatedTime: string;
-        name?: string;
-      }
-
       const participantMap = new Map<string, ParticipantInfo>();
       for (const convo of messengerConvos) {
         for (const participant of convo.participants.data) {

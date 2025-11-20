@@ -1,7 +1,6 @@
 'use client';
 
 import { useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useQueryState } from 'nuqs';
@@ -11,6 +10,7 @@ interface ContactsPaginationProps {
   totalPages: number;
   totalContacts: number;
   limit: number;
+  onPrefetchPage?: (page: number) => void;
 }
 
 export function ContactsPagination({
@@ -18,18 +18,17 @@ export function ContactsPagination({
   totalPages,
   totalContacts,
   limit,
+  onPrefetchPage,
 }: ContactsPaginationProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [, setPage] = useQueryState('page', {
     defaultValue: '1',
-    shallow: false,
+    shallow: true,
   });
 
   function handlePageChange(page: number) {
     startTransition(() => {
       setPage(page.toString());
-      router.refresh();
     });
   }
 
@@ -45,6 +44,7 @@ export function ContactsPagination({
           size="icon"
           onClick={() => handlePageChange(1)}
           disabled={currentPage === 1 || isPending}
+          onMouseEnter={() => currentPage > 1 && onPrefetchPage?.(1)}
         >
           <ChevronsLeft className="h-4 w-4" />
         </Button>
@@ -53,6 +53,7 @@ export function ContactsPagination({
           size="icon"
           onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
           disabled={currentPage === 1 || isPending}
+          onMouseEnter={() => currentPage > 1 && onPrefetchPage?.(currentPage - 1)}
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -64,6 +65,7 @@ export function ContactsPagination({
           size="icon"
           onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
           disabled={currentPage === totalPages || isPending}
+          onMouseEnter={() => currentPage < totalPages && onPrefetchPage?.(currentPage + 1)}
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -72,6 +74,7 @@ export function ContactsPagination({
           size="icon"
           onClick={() => handlePageChange(totalPages)}
           disabled={currentPage === totalPages || isPending}
+          onMouseEnter={() => currentPage < totalPages && onPrefetchPage?.(totalPages)}
         >
           <ChevronsRight className="h-4 w-4" />
         </Button>

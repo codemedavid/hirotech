@@ -1,39 +1,33 @@
 import OpenAI from 'openai';
-import apiKeyManager from './api-key-manager';
-
-// Store current key for tracking purposes
-let currentKey: string | null = null;
 
 const RATE_LIMIT_RETRY_DELAY_MS = 6000; // 6 seconds between retries
-const MAX_ATTEMPTS_PER_KEY = 3;
+const MAX_ATTEMPTS = 3;
 
-const PRIMARY_MODEL = 'google/gemini-2.0-flash-exp:free';
-const FALLBACK_MODELS = [
-  'openai/gpt-oss-20b:free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
-  'deepseek/deepseek-chat-v3.1:free',
-];
+// NVIDIA API model - using openai/gpt-oss-20b
+const MODEL = 'openai/gpt-oss-20b';
+
+// Log model configuration on module load
+console.log(`[NVIDIA] Model Configuration:`);
+console.log(`  Model: ${MODEL}`);
+console.log(`  BaseURL: https://integrate.api.nvidia.com/v1`);
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Helper function to create OpenAI client configured for OpenRouter
-function createOpenRouterClient(apiKey: string): OpenAI {
-  const siteUrl = process.env.OPENROUTER_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://hiro.app';
-  const siteName = process.env.OPENROUTER_SITE_NAME || 'Hiro';
-  
-  console.log(`[OpenRouter] Creating client with baseURL: https://openrouter.ai/api/v1`);
-  console.log(`[OpenRouter] Headers - HTTP-Referer: ${siteUrl}, X-Title: ${siteName}`);
-  console.log(`[OpenRouter] API Key length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...`);
+// Get API key from environment variables
+function getApiKey(): string | null {
+  return process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY || null;
+}
+
+// Helper function to create OpenAI client configured for NVIDIA API
+function createNvidiaClient(apiKey: string): OpenAI {
+  console.log(`[NVIDIA] Creating client with baseURL: https://integrate.api.nvidia.com/v1`);
+  console.log(`[NVIDIA] API Key length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...`);
   
   return new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: 'https://integrate.api.nvidia.com/v1',
     apiKey: apiKey,
-    defaultHeaders: {
-      'HTTP-Referer': siteUrl,
-      'X-Title': siteName,
-    },
   });
 }
 
@@ -45,9 +39,9 @@ export async function analyzeConversation(
   }>,
   retries = 2
 ): Promise<string | null> {
-  const apiKey = await apiKeyManager.getNextKey();
+  const apiKey = getApiKey();
   if (!apiKey) {
-    console.error('[OpenRouter] No API key available');
+    console.error('[NVIDIA] No API key available');
     return null;
   }
 
@@ -64,10 +58,8 @@ async function analyzeConversationWithKey(
   retries: number,
   keyAttempts: number
 ): Promise<string | null> {
-  currentKey = apiKey;
-
   try {
-    const openai = createOpenRouterClient(apiKey);
+    const openai = createNvidiaClient(apiKey);
 
     // Format conversation for AI
     const conversationText = messages
@@ -85,74 +77,33 @@ ${conversationText}
 
 Summary:`;
 
-    const modelsToTry = [PRIMARY_MODEL, ...FALLBACK_MODELS];
-    let lastRateLimitError: Error | null = null;
-    let completion;
+    console.log(
+      `[NVIDIA] Sending request - Model: ${MODEL}, Messages: ${messages.length}`
+    );
 
-    for (const model of modelsToTry) {
-      try {
-        console.log(
-          `[OpenRouter] Sending request - Model: ${model}, Messages: ${messages.length}`
-        );
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
 
-        completion = await openai.chat.completions.create({
-          model,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-        });
-
-        console.log(
-          `[OpenRouter] Received response - Model: ${model}, Choices: ${
-            completion.choices?.length || 0
-          }, Usage: ${JSON.stringify(completion.usage || {})}`
-        );
-        lastRateLimitError = null;
-        break;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (
-          errorMessage?.includes('429') ||
-          errorMessage?.includes('quota') ||
-          errorMessage?.includes('rate limit')
-        ) {
-          console.warn(
-            `[OpenRouter] Model ${model} hit rate limit, trying next fallback model...`
-          );
-          lastRateLimitError =
-            error instanceof Error ? error : new Error(String(error));
-          continue;
-        }
-
-        // Non rate-limit error – rethrow and let outer handler manage it
-        throw error;
-      }
-    }
-
-    if (!completion) {
-      if (lastRateLimitError) {
-        throw lastRateLimitError;
-      }
-      throw new Error('[OpenRouter] All models failed without a usable response');
-    }
-
-    console.log(`[OpenRouter] Received response - Choices: ${completion.choices?.length || 0}, Usage: ${JSON.stringify(completion.usage || {})}`);
+    console.log(
+      `[NVIDIA] Received response - Choices: ${
+        completion.choices?.length || 0
+      }, Usage: ${JSON.stringify(completion.usage || {})}`
+    );
 
     const summary = completion.choices[0]?.message?.content;
     if (!summary) {
-      console.error('[OpenRouter] No response content received. Full response:', JSON.stringify(completion, null, 2));
+      console.error('[NVIDIA] No response content received. Full response:', JSON.stringify(completion, null, 2));
       return null;
     }
     
-    console.log(`[OpenRouter] ✅ Generated summary (${summary.length} chars)`);
-    
-    // Record success
-    if (currentKey) {
-      await apiKeyManager.recordSuccess(currentKey);
-    }
+    console.log(`[NVIDIA] ✅ Generated summary (${summary.length} chars)`);
     
     return summary.trim();
   } catch (error: unknown) {
@@ -164,61 +115,43 @@ Summary:`;
       stack: error.stack?.split('\n').slice(0, 3).join('\n'),
     } : { raw: String(error) };
     
-    console.error('[OpenRouter] ❌ Analysis failed:', errorMessage);
-    console.error('[OpenRouter] Error details:', JSON.stringify(errorDetails, null, 2));
+    console.error('[NVIDIA] ❌ Analysis failed:', errorMessage);
+    console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
     
     // Check if it's a rate limit error (429)
     if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
       const attemptNumber = keyAttempts + 1;
-      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+      if (attemptNumber < MAX_ATTEMPTS) {
         console.warn(
-          `[OpenRouter] Rate limit hit for current key, retrying same key (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+          `[NVIDIA] Rate limit hit, retrying (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
         );
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversationWithKey(apiKey, messages, retries, keyAttempts + 1);
       }
 
-      console.warn(
-        '[OpenRouter] Rate limit persists after multiple attempts, marking key as rate-limited and rotating...'
-      );
+      console.error('[NVIDIA] Rate limit persists after multiple attempts');
       
-      // Mark key as rate-limited
-      if (currentKey) {
-        await apiKeyManager.markRateLimited(currentKey);
-      }
-      
-      // Try with next API key if we have retries left
+      // Try again if we have retries left
       if (retries > 0) {
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversation(messages, retries - 1);
       }
       
-      console.error('[OpenRouter] All API keys rate limited');
       return null;
     }
     
-    // Check for 401 authentication errors - mark key as invalid
+    // Check for 401 authentication errors
     if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
-      console.error('[OpenRouter] 🔐 Authentication failed - Invalid or expired API key');
-      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
+      console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       
-      // Mark the key as invalid/disabled so it won't be used again
-      if (currentKey) {
-        await apiKeyManager.markInvalid(currentKey, `401 Authentication Error: ${errorMessage}`);
-      }
-      
-      // Try with next API key if we have retries left
+      // Try again if we have retries left
       if (retries > 0) {
-        console.log('[OpenRouter] Trying next API key after authentication failure...');
+        console.log('[NVIDIA] Retrying after authentication failure...');
         return analyzeConversation(messages, retries - 1);
       }
       
       return null;
-    }
-    
-    // Record failure for other non-rate-limit errors
-    if (currentKey) {
-      await apiKeyManager.recordFailure(currentKey);
     }
     
     return null;
@@ -226,7 +159,8 @@ Summary:`;
 }
 
 export async function getAvailableKeyCount(): Promise<number> {
-  return await apiKeyManager.getKeyCount();
+  // Return 1 if API key is available, 0 otherwise
+  return getApiKey() ? 1 : 0;
 }
 
 // Generate follow-up message for AI automation
@@ -242,9 +176,9 @@ export async function generateFollowUpMessage(
   languageStyle?: string | null,
   retries = 2
 ): Promise<AIFollowUpResult | null> {
-  const apiKey = await apiKeyManager.getNextKey();
+  const apiKey = getApiKey();
   if (!apiKey) {
-    console.error('[OpenRouter] No API key available');
+    console.error('[NVIDIA] No API key available');
     return null;
   }
 
@@ -268,10 +202,8 @@ async function generateFollowUpWithKey(
   retries: number,
   keyAttempts: number
 ): Promise<AIFollowUpResult | null> {
-  currentKey = apiKey;
-
   try {
-    const openai = createOpenRouterClient(apiKey);
+    const openai = createNvidiaClient(apiKey);
 
     // Format conversation history
     const historyText = conversationHistory
@@ -307,7 +239,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 }`;
 
     const completion = await openai.chat.completions.create({
-      model: 'google/gemini-2.0-flash-exp:free',
+      model: MODEL,
       messages: [
         {
           role: 'user',
@@ -318,26 +250,21 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 
     const text = completion.choices[0]?.message?.content?.trim();
     if (!text) {
-      console.error('[OpenRouter] No response content received');
+      console.error('[NVIDIA] No response content received');
       return null;
     }
     
     // Parse JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[OpenRouter] No JSON found in response');
+      console.error('[NVIDIA] No JSON found in response');
       return null;
     }
     
     const followUp = JSON.parse(jsonMatch[0]) as AIFollowUpResult;
     console.log(
-      `[OpenRouter] Generated follow-up message for ${contactName}: "${followUp.message}"`
+      `[NVIDIA] Generated follow-up message for ${contactName}: "${followUp.message}"`
     );
-    
-    // Record success
-    if (currentKey) {
-      await apiKeyManager.recordSuccess(currentKey);
-    }
     
     return followUp;
   } catch (error: unknown) {
@@ -349,11 +276,9 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       errorMessage?.includes('rate limit')
     ) {
       const attemptNumber = keyAttempts + 1;
-      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+      if (attemptNumber < MAX_ATTEMPTS) {
         console.warn(
-          `[OpenRouter] Rate limit hit for current key (follow-up), retrying same key (attempt ${
-            attemptNumber + 1
-          }/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+          `[NVIDIA] Rate limit hit (follow-up), retrying (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
         );
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return generateFollowUpWithKey(
@@ -367,16 +292,9 @@ Respond ONLY with valid JSON (no markdown, no explanation):
         );
       }
 
-      console.warn(
-        '[OpenRouter] Rate limit persists for follow-up after multiple attempts, marking key and rotating...'
-      );
+      console.error('[NVIDIA] Rate limit persists for follow-up after multiple attempts');
       
-      // Mark key as rate-limited
-      if (currentKey) {
-        await apiKeyManager.markRateLimited(currentKey);
-      }
-      
-      // Try with next API key if we have retries left
+      // Try again if we have retries left
       if (retries > 0) {
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return generateFollowUpMessage(
@@ -388,16 +306,10 @@ Respond ONLY with valid JSON (no markdown, no explanation):
         );
       }
       
-      console.error('[OpenRouter] All API keys rate limited');
       return null;
     }
     
-    // Record failure
-    if (currentKey) {
-      await apiKeyManager.recordFailure(currentKey);
-    }
-    
-    console.error('[OpenRouter] Follow-up generation failed:', errorMessage);
+    console.error('[NVIDIA] Follow-up generation failed:', errorMessage);
     return null;
   }
 }
@@ -423,9 +335,9 @@ export async function analyzeConversationWithStageRecommendation(
   }>,
   retries = 2
 ): Promise<AIContactAnalysis | null> {
-  const apiKey = await apiKeyManager.getNextKey();
+  const apiKey = getApiKey();
   if (!apiKey) {
-    console.error('[OpenRouter] No API key available');
+    console.error('[NVIDIA] No API key available');
     return null;
   }
 
@@ -451,10 +363,8 @@ async function analyzeConversationWithStageAndKey(
   retries: number,
   keyAttempts: number
 ): Promise<AIContactAnalysis | null> {
-  currentKey = apiKey;
-
   try {
-    const openai = createOpenRouterClient(apiKey);
+    const openai = createNvidiaClient(apiKey);
 
     const conversationText = messages
       .map(msg => `${msg.from}: ${msg.text}`)
@@ -526,82 +436,41 @@ Respond ONLY with valid JSON (no markdown, no explanation):
   "reasoning": "brief explanation of stage choice and score"
 }`;
 
-    const modelsToTry = [PRIMARY_MODEL, ...FALLBACK_MODELS];
-    let lastRateLimitError: Error | null = null;
-    let completion;
+    console.log(
+      `[NVIDIA] Sending stage recommendation request - Model: ${MODEL}, Stages: ${pipelineStages.length}`
+    );
 
-    for (const model of modelsToTry) {
-      try {
-        console.log(
-          `[OpenRouter] Sending stage recommendation request - Model: ${model}, Stages: ${pipelineStages.length}`
-        );
-    
-        completion = await openai.chat.completions.create({
-          model,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-        });
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
 
-        console.log(
-          `[OpenRouter] Received response - Model: ${model}, Choices: ${
-            completion.choices?.length || 0
-          }, Usage: ${JSON.stringify(completion.usage || {})}`
-        );
-        lastRateLimitError = null;
-        break;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (
-          errorMessage?.includes('429') ||
-          errorMessage?.includes('quota') ||
-          errorMessage?.includes('rate limit')
-        ) {
-          console.warn(
-            `[OpenRouter] Model ${model} hit rate limit (stage recommendation), trying next fallback model...`
-          );
-          lastRateLimitError =
-            error instanceof Error ? error : new Error(String(error));
-          continue;
-        }
-
-        // Non rate-limit error – rethrow and let outer handler manage it
-        throw error;
-      }
-    }
-
-    if (!completion) {
-      if (lastRateLimitError) {
-        throw lastRateLimitError;
-      }
-      throw new Error(
-        '[OpenRouter] All models failed for stage recommendation without a usable response'
-      );
-    }
+    console.log(
+      `[NVIDIA] Received response - Choices: ${
+        completion.choices?.length || 0
+      }, Usage: ${JSON.stringify(completion.usage || {})}`
+    );
 
     const text = completion.choices[0]?.message?.content?.trim();
     if (!text) {
-      console.error('[OpenRouter] No response content received. Full response:', JSON.stringify(completion, null, 2));
+      console.error('[NVIDIA] No response content received. Full response:', JSON.stringify(completion, null, 2));
       return null;
     }
     
     // Parse JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[OpenRouter] No JSON found in response. Raw text:', text.substring(0, 200));
+      console.error('[NVIDIA] No JSON found in response. Raw text:', text.substring(0, 200));
       return null;
     }
     
     const analysis = JSON.parse(jsonMatch[0]) as AIContactAnalysis;
-    console.log(`[OpenRouter] ✅ Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%, score: ${analysis.leadScore})`);
-    
-    // Record success
-    if (currentKey) {
-      await apiKeyManager.recordSuccess(currentKey);
-    }
+    console.log(`[NVIDIA] ✅ Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%, score: ${analysis.leadScore})`);
     
     return analysis;
   } catch (error: unknown) {
@@ -613,15 +482,15 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       stack: error.stack?.split('\n').slice(0, 3).join('\n'),
     } : { raw: String(error) };
     
-    console.error('[OpenRouter] ❌ Stage recommendation failed:', errorMessage);
-    console.error('[OpenRouter] Error details:', JSON.stringify(errorDetails, null, 2));
+    console.error('[NVIDIA] ❌ Stage recommendation failed:', errorMessage);
+    console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
     
     // Check if it's a rate limit error (429)
     if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
       const attemptNumber = keyAttempts + 1;
-      if (attemptNumber < MAX_ATTEMPTS_PER_KEY) {
+      if (attemptNumber < MAX_ATTEMPTS) {
         console.warn(
-          `[OpenRouter] Rate limit hit for current key (stage recommendation), retrying same key (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS_PER_KEY}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+          `[NVIDIA] Rate limit hit (stage recommendation), retrying (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS}) after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
         );
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversationWithStageAndKey(
@@ -633,47 +502,29 @@ Respond ONLY with valid JSON (no markdown, no explanation):
         );
       }
 
-      console.warn(
-        '[OpenRouter] Rate limit persists for stage recommendation after multiple attempts, marking key and rotating...'
-      );
+      console.error('[NVIDIA] Rate limit persists for stage recommendation after multiple attempts');
       
-      // Mark key as rate-limited
-      if (currentKey) {
-        await apiKeyManager.markRateLimited(currentKey);
-      }
-      
-      // Try with next API key if we have retries left
+      // Try again if we have retries left
       if (retries > 0) {
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
       }
       
-      console.error('[OpenRouter] All API keys rate limited');
       return null;
     }
     
-    // Check for 401 authentication errors - mark key as invalid
+    // Check for 401 authentication errors
     if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
-      console.error('[OpenRouter] 🔐 Authentication failed - Invalid or expired API key');
-      console.error('[OpenRouter] API key should start with "sk-or-v1-" for OpenRouter');
+      console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
+      console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       
-      // Mark the key as invalid/disabled so it won't be used again
-      if (currentKey) {
-        await apiKeyManager.markInvalid(currentKey, `401 Authentication Error: ${errorMessage}`);
-      }
-      
-      // Try with next API key if we have retries left
+      // Try again if we have retries left
       if (retries > 0) {
-        console.log('[OpenRouter] Trying next API key after authentication failure...');
+        console.log('[NVIDIA] Retrying after authentication failure...');
         return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
       }
       
       return null;
-    }
-    
-    // Record failure for other non-rate-limit errors
-    if (currentKey) {
-      await apiKeyManager.recordFailure(currentKey);
     }
     
     return null;
@@ -689,25 +540,21 @@ export interface PersonalizedMessageContext {
 }
 
 export class GoogleAIService {
-  private currentKey: string | null = null;
-
   async generatePersonalizedMessage(
     context: PersonalizedMessageContext,
     retries = 2
   ): Promise<string> {
-    const apiKey = await apiKeyManager.getNextKey();
+    const apiKey = getApiKey();
     if (!apiKey) {
-      console.error('[OpenRouter] No API key available');
+      console.error('[NVIDIA] No API key available');
       // Fallback to template
       return context.templateMessage
         .replace(/\{firstName\}/g, context.contactName)
         .replace(/\{name\}/g, context.contactName);
     }
 
-    this.currentKey = apiKey;
-
     try {
-      const openai = createOpenRouterClient(apiKey);
+      const openai = createNvidiaClient(apiKey);
 
       const historyText = context.conversationHistory.length > 0
         ? context.conversationHistory
@@ -736,7 +583,7 @@ Create a natural, personalized version of the template message that:
 Respond with ONLY the personalized message text (no JSON, no markdown, no explanation).`;
 
       const completion = await openai.chat.completions.create({
-        model: 'google/gemini-2.0-flash-exp:free',
+        model: MODEL,
         messages: [
           {
             role: 'user',
@@ -747,45 +594,31 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
 
       const personalizedMessage = completion.choices[0]?.message?.content?.trim();
       if (!personalizedMessage) {
-        console.error('[OpenRouter] No response content received');
+        console.error('[NVIDIA] No response content received');
         // Fallback to template
         return context.templateMessage
           .replace(/\{firstName\}/g, context.contactName)
           .replace(/\{name\}/g, context.contactName);
       }
 
-      console.log(`[OpenRouter] Generated personalized message for ${context.contactName}`);
-      
-      // Record success
-      if (this.currentKey) {
-        await apiKeyManager.recordSuccess(this.currentKey);
-      }
+      console.log(`[NVIDIA] Generated personalized message for ${context.contactName}`);
       
       return personalizedMessage;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
         console.warn(
-          `[OpenRouter] Rate limit hit for current key (personalization), marking key and rotating after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
+          `[NVIDIA] Rate limit hit (personalization), retrying after ${RATE_LIMIT_RETRY_DELAY_MS}ms...`
         );
-
-        // Mark key as rate-limited
-        if (this.currentKey) {
-          await apiKeyManager.markRateLimited(this.currentKey);
-        }
 
         if (retries > 0) {
           await sleep(RATE_LIMIT_RETRY_DELAY_MS);
           return this.generatePersonalizedMessage(context, retries - 1);
         }
 
-        console.error('[OpenRouter] All API keys rate limited');
+        console.error('[NVIDIA] Rate limit persists after multiple attempts');
       } else {
-        // Record failure
-        if (this.currentKey) {
-          await apiKeyManager.recordFailure(this.currentKey);
-        }
-        console.error('[OpenRouter] Personalization failed:', errorMessage);
+        console.error('[NVIDIA] Personalization failed:', errorMessage);
       }
 
       // Fallback to template

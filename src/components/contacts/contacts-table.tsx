@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useTransition, useMemo, memo } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,11 +89,142 @@ interface ContactsTableProps {
   contacts: Contact[];
   tags: Tag[];
   pipelines: Pipeline[];
+  isLoading?: boolean;
 }
 
-export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps) {
-  const router = useRouter();
+// Memoized contact row component to prevent unnecessary re-renders
+const ContactRow = memo(function ContactRow({
+  contact,
+  isSelected,
+  onSelect,
+  onDelete,
+}: {
+  contact: Contact;
+  isSelected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <TableRow
+      data-state={isSelected ? 'selected' : undefined}
+    >
+      <TableCell>
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={(checked) => onSelect(contact.id, checked as boolean)}
+          aria-label={`Select ${contact.firstName}`}
+        />
+      </TableCell>
+      <TableCell>
+        <Link
+          href={`/contacts/${contact.id}`}
+          className="flex items-center gap-3 hover:underline"
+        >
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={contact.profilePicUrl || undefined} />
+            <AvatarFallback className="text-xs">
+              {contact.firstName[0]}
+              {contact.lastName?.[0] || ''}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="font-medium">
+              {contact.firstName} {contact.lastName || ''}
+            </div>
+          </div>
+        </Link>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">
+            {contact.facebookPage.pageName}
+          </span>
+          {contact.facebookPage.instagramUsername && (
+            <span className="text-xs text-muted-foreground">
+              @{contact.facebookPage.instagramUsername}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          {contact.hasMessenger && (
+            <Badge variant="secondary" className="text-xs">
+              Messenger
+            </Badge>
+          )}
+          {contact.hasInstagram && (
+            <Badge variant="secondary" className="text-xs">
+              Instagram
+            </Badge>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{contact.leadScore}</Badge>
+      </TableCell>
+      <TableCell>
+        {contact.stage && (
+          <Badge
+            variant="outline"
+            style={{
+              backgroundColor: `${contact.stage.color}20`,
+              color: contact.stage.color,
+              borderColor: contact.stage.color,
+            }}
+          >
+            {contact.stage.name}
+          </Badge>
+        )}
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-1 max-w-xs">
+          {contact.tags.slice(0, 2).map((tag) => (
+            <Badge key={tag} variant="secondary" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+          {contact.tags.length > 2 && (
+            <Badge variant="secondary" className="text-xs">
+              +{contact.tags.length - 2}
+            </Badge>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {contact.createdAt instanceof Date 
+          ? contact.createdAt.toLocaleDateString() 
+          : new Date(contact.createdAt).toLocaleDateString()}
+      </TableCell>
+      <TableCell>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/contacts/${contact.id}`}>View details</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => onDelete(contact.id)}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+export function ContactsTable({ contacts, tags, pipelines, isLoading }: ContactsTableProps) {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [isPending, startTransition] = useTransition();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllPages, setSelectAllPages] = useState(false);
@@ -104,11 +236,11 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
 
   const [sortBy, setSortBy] = useQueryState('sortBy', {
     defaultValue: 'date',
-    shallow: false,
+    shallow: true,
   });
   const [sortOrder, setSortOrder] = useQueryState('sortOrder', {
     defaultValue: 'desc',
-    shallow: false,
+    shallow: true,
   });
 
   function handleSort(column: 'name' | 'score' | 'date') {
@@ -119,7 +251,6 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
         setSortBy(column);
         setSortOrder('asc');
       }
-      router.refresh();
     });
   }
 
@@ -240,7 +371,8 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
           );
         }
         setSelectedIds(new Set());
-        router.refresh();
+        // Invalidate contacts queries to refetch data
+        queryClient.invalidateQueries({ queryKey: ['contacts'] });
       } else {
         toast.error(result.error || 'Failed to perform action');
       }
@@ -261,7 +393,8 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
       });
       if (response.ok) {
         toast.success('Contact deleted');
-        router.refresh();
+        // Invalidate contacts queries to refetch data
+        queryClient.invalidateQueries({ queryKey: ['contacts'] });
       } else {
         toast.error('Failed to delete contact');
       }
@@ -270,10 +403,23 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
     }
   }
 
-  const allSelected = contacts.length > 0 && selectedIds.size === contacts.length;
-  const someSelected = selectedIds.size > 0 && selectedIds.size < contacts.length;
-  const showBulkActions = selectedIds.size > 0;
-  const showSelectAllBanner = allSelected && !selectAllPages && contacts.length > 0;
+  // Memoize expensive computations
+  const allSelected = useMemo(
+    () => contacts.length > 0 && selectedIds.size === contacts.length,
+    [contacts.length, selectedIds.size]
+  );
+  const someSelected = useMemo(
+    () => selectedIds.size > 0 && selectedIds.size < contacts.length,
+    [selectedIds.size, contacts.length]
+  );
+  const showBulkActions = useMemo(
+    () => selectedIds.size > 0,
+    [selectedIds.size]
+  );
+  const showSelectAllBanner = useMemo(
+    () => allSelected && !selectAllPages && contacts.length > 0,
+    [allSelected, selectAllPages, contacts.length]
+  );
 
   return (
     <>
@@ -483,123 +629,13 @@ export function ContactsTable({ contacts, tags, pipelines }: ContactsTableProps)
           </TableHeader>
           <TableBody>
             {contacts.map((contact) => (
-              <TableRow
+              <ContactRow
                 key={contact.id}
-                data-state={selectedIds.has(contact.id) ? 'selected' : undefined}
-              >
-                <TableCell>
-                  <Checkbox
-                    checked={selectedIds.has(contact.id)}
-                    onCheckedChange={(checked) =>
-                      handleSelectOne(contact.id, checked as boolean)
-                    }
-                    aria-label={`Select ${contact.firstName}`}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Link
-                    href={`/contacts/${contact.id}`}
-                    className="flex items-center gap-3 hover:underline"
-                  >
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={contact.profilePicUrl || undefined} />
-                      <AvatarFallback className="text-xs">
-                        {contact.firstName[0]}
-                        {contact.lastName?.[0] || ''}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="font-medium">
-                        {contact.firstName} {contact.lastName || ''}
-                      </div>
-                    </div>
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium">
-                      {contact.facebookPage.pageName}
-                    </span>
-                    {contact.facebookPage.instagramUsername && (
-                      <span className="text-xs text-muted-foreground">
-                        @{contact.facebookPage.instagramUsername}
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    {contact.hasMessenger && (
-                      <Badge variant="secondary" className="text-xs">
-                        Messenger
-                      </Badge>
-                    )}
-                    {contact.hasInstagram && (
-                      <Badge variant="secondary" className="text-xs">
-                        Instagram
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{contact.leadScore}</Badge>
-                </TableCell>
-                <TableCell>
-                  {contact.stage && (
-                    <Badge
-                      variant="outline"
-                      style={{
-                        backgroundColor: `${contact.stage.color}20`,
-                        color: contact.stage.color,
-                        borderColor: contact.stage.color,
-                      }}
-                    >
-                      {contact.stage.name}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1 max-w-xs">
-                    {contact.tags.slice(0, 2).map((tag) => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
-                        {tag}
-                      </Badge>
-                    ))}
-                    {contact.tags.length > 2 && (
-                      <Badge variant="secondary" className="text-xs">
-                        +{contact.tags.length - 2}
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {contact.createdAt instanceof Date 
-                    ? contact.createdAt.toLocaleDateString() 
-                    : new Date(contact.createdAt).toLocaleDateString()}
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Open menu</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/contacts/${contact.id}`}>View details</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleDeleteContact(contact.id)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
+                contact={contact}
+                isSelected={selectedIds.has(contact.id)}
+                onSelect={handleSelectOne}
+                onDelete={handleDeleteContact}
+              />
             ))}
           </TableBody>
         </Table>

@@ -331,11 +331,11 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
       });
 
       // Initialize concurrency limiters
-      const messageFetchLimiter = new ConcurrencyLimiter(5);
-      const analysisLimiter = new ConcurrencyLimiter(5);
+      const messageFetchLimiter = new ConcurrencyLimiter(50);
+      const analysisLimiter = new ConcurrencyLimiter(50);
 
       // Process in batches to update progress incrementally
-      const BATCH_SIZE = 20; // Process 20 contacts at a time
+      const BATCH_SIZE = 50; // Process 50 contacts at a time
       const batches = [];
       for (let i = 0; i < tasksToProcess.length; i += BATCH_SIZE) {
         batches.push(tasksToProcess.slice(i, i + BATCH_SIZE));
@@ -630,11 +630,11 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
         });
 
         // Initialize concurrency limiters for Instagram
-        const igMessageFetchLimiter = new ConcurrencyLimiter(5);
-        const igAnalysisLimiter = new ConcurrencyLimiter(5);
+        const igMessageFetchLimiter = new ConcurrencyLimiter(50);
+        const igAnalysisLimiter = new ConcurrencyLimiter(50);
 
         // Process in batches to update progress incrementally
-        const IG_BATCH_SIZE = 20; // Process 20 contacts at a time
+        const IG_BATCH_SIZE = 50; // Process 50 contacts at a time
         const igBatches = [];
         for (let i = 0; i < igTasksToProcess.length; i += IG_BATCH_SIZE) {
           igBatches.push(igTasksToProcess.slice(i, i + IG_BATCH_SIZE));

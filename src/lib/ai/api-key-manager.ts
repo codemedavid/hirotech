@@ -52,7 +52,7 @@ class ApiKeyManager {
       await prisma.apiKey.update({
         where: { id: keyId },
         data: { lastUsedAt: new Date() },
-      }).catch(err => {
+      }).catch((err: unknown) => {
         // Non-critical, just log
         console.warn('[ApiKeyManager] Failed to update lastUsedAt:', err);
       });
@@ -86,7 +86,7 @@ class ApiKeyManager {
         },
       });
 
-      this.activeKeyIds = activeKeys.map(k => k.id);
+      this.activeKeyIds = activeKeys.map((k: { id: string }) => k.id);
       this.lastRefresh = Date.now();
       
       if (this.activeKeyIds.length > 0) {
@@ -107,7 +107,7 @@ class ApiKeyManager {
   async markRateLimited(keyIdOrDecryptedKey: string): Promise<void> {
     try {
       // Find key by ID or by matching decrypted key
-      let apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
+      const apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
 
       if (!apiKey) {
         console.warn('[ApiKeyManager] Key not found for rate limit marking');
@@ -128,7 +128,13 @@ class ApiKeyManager {
       // Invalidate cache to exclude this key
       await this.refreshActiveKeys();
       
-      console.log(`[ApiKeyManager] Marked key ${apiKey.id} (${apiKey.name || 'unnamed'}) as rate-limited`);
+      // Fetch full record to get name for logging
+      const fullKey = await prisma.apiKey.findUnique({
+        where: { id: apiKey.id },
+        select: { id: true, name: true },
+      });
+      const keyName = fullKey?.name || 'unnamed';
+      console.log(`[ApiKeyManager] Marked key ${apiKey.id} (${keyName}) as rate-limited`);
     } catch (error) {
       console.error('[ApiKeyManager] Error marking key as rate-limited:', error);
     }
@@ -226,7 +232,8 @@ class ApiKeyManager {
       // Invalidate cache to exclude this key
       await this.refreshActiveKeys();
       
-      console.error(`[ApiKeyManager] ⚠️ Marked key ${apiKeyRecord.id} (${fullKey?.name || 'unnamed'}) as DISABLED - ${reason}`);
+      const keyName = fullKey?.name || 'unnamed';
+      console.error(`[ApiKeyManager] ⚠️ Marked key ${apiKeyRecord.id} (${keyName}) as DISABLED - ${reason}`);
       console.error(`[ApiKeyManager] Please check this key in the API Keys settings and update it if needed`);
     } catch (error) {
       console.error('[ApiKeyManager] Error marking key as invalid:', error);

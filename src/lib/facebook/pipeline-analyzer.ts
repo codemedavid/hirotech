@@ -282,188 +282,170 @@ async function executePipelineAnalysis(jobId: string, facebookPageId: string): P
       }
     }
 
-    // Process contacts in batches
-    const BATCH_SIZE = 10; // Smaller batches for analysis (more expensive operations)
-    const batches = [];
-    for (let i = 0; i < contactsWithoutPipeline.length; i += BATCH_SIZE) {
-      batches.push(contactsWithoutPipeline.slice(i, i + BATCH_SIZE));
-    }
+    // Process all contacts continuously - each contact completes independently
+    const conversationFetchLimiter = new ConcurrencyLimiter(50); // Limit API calls
+    const analysisLimiter = new ConcurrencyLimiter(50); // Limit AI analysis
 
-    const conversationFetchLimiter = new ConcurrencyLimiter(3); // Limit API calls
-    const analysisLimiter = new ConcurrencyLimiter(3); // Limit AI analysis
+    console.log(`[Pipeline Analysis ${jobId}] Processing ${contactsWithoutPipeline.length} contacts continuously...`);
 
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      
-      if (await isJobCancelled(jobId)) {
-        console.log(`[Pipeline Analysis ${jobId}] Analysis cancelled by user`);
-        return;
-      }
+    // Process all contacts in one continuous flow
+    await Promise.all(
+      contactsWithoutPipeline.map(async (contact) => {
+        // Check for cancellation periodically
+        if (await isJobCancelled(jobId)) {
+          return;
+        }
 
-      console.log(`[Pipeline Analysis ${jobId}] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} contacts)...`);
+        try {
+          // Step 1: Find conversation ID for this contact (try Messenger first, then Instagram)
+          let conversationInfo = contact.messengerPSID 
+            ? messengerConversationMap.get(contact.messengerPSID)
+            : null;
 
-      // Step 1: Fetch conversations and messages for this batch
-      const conversationResults = await Promise.all(
-        batch.map(contact =>
-          conversationFetchLimiter.execute(async () => {
-            try {
-              // Find conversation ID for this contact (try Messenger first, then Instagram)
-              let conversationInfo = contact.messengerPSID 
-                ? messengerConversationMap.get(contact.messengerPSID)
-                : null;
-
-              if (!conversationInfo && contact.instagramSID) {
-                conversationInfo = instagramConversationMap.get(contact.instagramSID);
-              }
-
-              if (!conversationInfo) {
-                return { contact, messages: null, error: { message: 'Conversation not found', code: undefined } };
-              }
-
-              const conversationId = conversationInfo.conversationId;
-
-              // Fetch messages from API
-              const messages = await client.getAllMessagesForConversation(conversationId);
-              return { contact, messages, error: null };
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-              const errorCode = error instanceof FacebookApiError ? error.code : undefined;
-              return { contact, messages: null, error: { message: errorMessage, code: errorCode } };
-            }
-          })
-        )
-      );
-
-      // Step 2: Analyze this batch
-      const analysisResults = await Promise.all(
-        conversationResults.map(({ contact, messages, error }) =>
-          analysisLimiter.execute(async () => {
-            if (error) {
-              return { contact, analysis: null, error };
-            }
-
-            if (!messages || messages.length === 0) {
-              return {
-                contact,
-                analysis: null,
-                error: { message: 'No messages found', code: undefined },
-              };
-            }
-
-            try {
-              // Prepare messages for analysis
-              const messagesToAnalyze = messages
-                .filter((msg: { message?: string }) => msg.message)
-                .map((msg: { 
-                  from?: { name?: string; username?: string; id?: string }; 
-                  message?: string; 
-                  created_time?: string 
-                }) => ({
-                  from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
-                  text: msg.message || '',
-                  timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
-                }))
-                .reverse(); // Oldest first
-
-              if (messagesToAnalyze.length === 0) {
-                return {
-                  contact,
-                  analysis: null,
-                  error: { message: 'No valid messages to analyze', code: undefined },
-                };
-              }
-
-              // Analyze with AI
-              const { analysis } = await analyzeWithFallback(
-                messagesToAnalyze,
-                page.autoPipeline.stages,
-                contact.lastInteraction || undefined
-              );
-
-              return { contact, analysis, error: null };
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-              return { contact, analysis: null, error: { message: errorMessage, code: undefined } };
-            }
-          })
-        )
-      );
-
-      // Step 3: Assign to pipeline and update contacts
-      await Promise.all(
-        analysisResults.map(async ({ contact, analysis, error }) => {
-          if (error) {
-            failedCount++;
-            errors.push({
-              platform: 'Messenger',
-              id: contact.id,
-              error: error.message,
-              code: error.code,
-            });
-            if (error.code && error.code === 190) {
-              tokenExpired = true;
-            }
-            return;
+          if (!conversationInfo && contact.instagramSID) {
+            conversationInfo = instagramConversationMap.get(contact.instagramSID);
           }
 
-          if (!analysis) {
+          if (!conversationInfo) {
             failedCount++;
             errors.push({
               platform: 'Messenger',
               id: contact.id,
-              error: 'No analysis result',
+              error: 'Conversation not found',
               code: undefined,
             });
             return;
           }
 
-          try {
-            // Update contact with AI context
-            await prisma.contact.update({
-              where: { id: contact.id },
-              data: {
-                aiContext: analysis.summary,
-                aiContextUpdatedAt: new Date(),
-              },
-            });
+          // Step 2: Fetch messages (concurrency limited)
+          const messages = await conversationFetchLimiter.execute(async () => {
+            try {
+              return await client.getAllMessagesForConversation(conversationInfo!.conversationId);
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+              throw { message: errorMessage, code: errorCode };
+            }
+          });
 
-            // Assign to pipeline
-            await autoAssignContactToPipeline({
-              contactId: contact.id,
-              aiAnalysis: analysis,
-              pipelineId: page.autoPipelineId!,
-              updateMode: page.autoPipelineMode,
-            });
-
-            analyzedCount++;
-          } catch (error) {
+          if (!messages || messages.length === 0) {
             failedCount++;
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            const errorCode = error instanceof FacebookApiError ? error.code : undefined;
             errors.push({
               platform: 'Messenger',
               id: contact.id,
-              error: errorMessage,
-              code: errorCode,
+              error: 'No messages found',
+              code: undefined,
             });
-            if (error instanceof FacebookApiError && error.isTokenExpired) {
-              tokenExpired = true;
-            }
+            return;
           }
-        })
-      );
 
-      // Update progress after each batch
-      await prisma.syncJob.update({
-        where: { id: jobId },
-        data: {
-          syncedContacts: analyzedCount,
-          failedContacts: failedCount,
-        },
-      });
+          // Step 3: Prepare messages for analysis
+          const messagesToAnalyze = messages
+            .filter((msg: { message?: string }) => msg.message)
+            .map((msg: { 
+              from?: { name?: string; username?: string; id?: string }; 
+              message?: string; 
+              created_time?: string 
+            }) => ({
+              from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
+              text: msg.message || '',
+              timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
+            }))
+            .reverse(); // Oldest first
 
-      console.log(`[Pipeline Analysis ${jobId}] Batch ${batchIndex + 1}/${batches.length} complete: ${analyzedCount} analyzed, ${failedCount} failed`);
-    }
+          if (messagesToAnalyze.length === 0) {
+            failedCount++;
+            errors.push({
+              platform: 'Messenger',
+              id: contact.id,
+              error: 'No valid messages to analyze',
+              code: undefined,
+            });
+            return;
+          }
+
+          // Step 4: Analyze with AI (concurrency limited)
+          const { analysis } = await analysisLimiter.execute(async () => {
+            if (!page.autoPipeline) {
+              throw new Error('Auto-pipeline not configured');
+            }
+            return await analyzeWithFallback(
+              messagesToAnalyze,
+              page.autoPipeline.stages,
+              contact.lastInteraction || undefined
+            );
+          });
+
+          // Step 5: Update contact with AI context (immediate - contact appears in pipeline now)
+          await prisma.contact.update({
+            where: { id: contact.id },
+            data: {
+              aiContext: analysis.summary,
+              aiContextUpdatedAt: new Date(),
+            },
+          });
+
+          // Step 6: Assign to pipeline (immediate - contact appears in pipeline now)
+          await autoAssignContactToPipeline({
+            contactId: contact.id,
+            aiAnalysis: analysis,
+            pipelineId: page.autoPipelineId!,
+            updateMode: page.autoPipelineMode,
+          });
+
+          // Increment counter (atomic operation in JavaScript)
+          const currentCount = ++analyzedCount;
+
+          // Update progress periodically (every 10 contacts) - non-blocking fire-and-forget
+          if (currentCount % 10 === 0) {
+            // Fire-and-forget: don't await, don't block contact processing
+            prisma.syncJob.update({
+              where: { id: jobId },
+              data: {
+                syncedContacts: currentCount,
+                failedContacts: failedCount,
+              },
+            }).catch((error) => {
+              // Silently handle errors - progress update failures shouldn't stop processing
+              console.error(`[Pipeline Analysis ${jobId}] Failed to update progress:`, error);
+            });
+          }
+        } catch (error: unknown) {
+          // Increment failed counter (atomic operation in JavaScript)
+          const currentFailedCount = ++failedCount;
+          const errorMessage = error instanceof Error ? error.message : (typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : 'Unknown error');
+          const errorCode = error instanceof FacebookApiError ? error.code : (typeof error === 'object' && error !== null && 'code' in error ? (typeof error.code === 'number' ? error.code : undefined) : undefined);
+          
+          errors.push({
+            platform: 'Messenger',
+            id: contact.id,
+            error: errorMessage,
+            code: errorCode,
+          });
+          
+          // Update progress periodically (every 10 failures) - non-blocking fire-and-forget
+          if (currentFailedCount % 10 === 0) {
+            // Fire-and-forget: don't await, don't block contact processing
+            prisma.syncJob.update({
+              where: { id: jobId },
+              data: {
+                syncedContacts: analyzedCount,
+                failedContacts: currentFailedCount,
+              },
+            }).catch((error) => {
+              // Silently handle errors - progress update failures shouldn't stop processing
+              console.error(`[Pipeline Analysis ${jobId}] Failed to update progress:`, error);
+            });
+          }
+          
+          if (error instanceof FacebookApiError && error.isTokenExpired) {
+            tokenExpired = true;
+          } else if (typeof error === 'object' && error !== null && 'code' in error && error.code === 190) {
+            tokenExpired = true;
+          }
+        }
+      })
+    );
 
     // Update job with final results
     await prisma.syncJob.update({

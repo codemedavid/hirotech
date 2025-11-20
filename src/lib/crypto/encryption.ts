@@ -31,7 +31,7 @@ function getEncryptionKey(): Buffer {
 
   try {
     return Buffer.from(encryptionKey, 'hex');
-  } catch (error) {
+  } catch {
     throw new Error('ENCRYPTION_KEY must be a valid hex string');
   }
 }

@@ -1,7 +1,6 @@
 import { Suspense, cache } from 'react';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
-import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { ContactsSearch } from '@/components/contacts/contacts-search';
@@ -11,9 +10,8 @@ import { TagsFilter } from '@/components/contacts/tags-filter';
 import { PlatformFilter } from '@/components/contacts/platform-filter';
 import { ScoreFilter } from '@/components/contacts/score-filter';
 import { StageFilter } from '@/components/contacts/stage-filter';
-import { ContactsTable } from '@/components/contacts/contacts-table';
-import { ContactsPagination } from '@/components/contacts/contacts-pagination';
-import { Users, Plus } from 'lucide-react';
+import { ContactsContentClient } from '@/components/contacts/contacts-content-client';
+import { Plus } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
@@ -249,7 +247,8 @@ async function ContactsContent({
   tags: Awaited<ReturnType<typeof getTags>>;
   pipelines: Awaited<ReturnType<typeof getPipelines>>;
 }) {
-  const { contacts, pagination } = await getContacts(searchParams);
+  // Initial server-side data fetch for fast first load
+  const initialData = await getContacts(searchParams);
 
   const hasFilters = !!(
     searchParams.search ||
@@ -261,45 +260,13 @@ async function ContactsContent({
     searchParams.stageId
   );
 
-  if (contacts.length === 0 && !hasFilters) {
-    return (
-      <EmptyState
-        icon={<Users className="h-12 w-12" />}
-        title="No contacts yet"
-        description="Connect your Facebook page and sync contacts to get started"
-        action={{
-          label: 'Go to Integrations',
-          href: '/settings/integrations',
-        }}
-      />
-    );
-  }
-
-  if (contacts.length === 0 && hasFilters) {
-    return (
-      <div className="border rounded-lg p-12 text-center">
-        <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-        <h3 className="text-lg font-semibold mb-2">No contacts found</h3>
-        <p className="text-muted-foreground">
-          Try adjusting your filters to see more results
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <ContactsTable contacts={contacts} tags={tags} pipelines={pipelines} />
-
-      {pagination.pages > 1 && (
-        <ContactsPagination
-          currentPage={pagination.page}
-          totalPages={pagination.pages}
-          totalContacts={pagination.total}
-          limit={pagination.limit}
-        />
-      )}
-    </>
+    <ContactsContentClient
+      initialData={initialData}
+      tags={tags}
+      pipelines={pipelines}
+      hasFilters={hasFilters}
+    />
   );
 }
 

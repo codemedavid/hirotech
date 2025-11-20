@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { FacebookClient, FacebookApiError } from './client';
+import { FacebookClient } from './client';
 import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
 import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
 
@@ -102,7 +102,7 @@ export async function analyzeSelectedContacts(
   }
 
   // Process each page's contacts
-  for (const [pageId, pageContacts] of contactsByPage) {
+  for (const [, pageContacts] of contactsByPage) {
     const page = pageContacts[0].facebookPage;
     
     if (!page.autoPipelineId || !page.autoPipeline) {
@@ -195,164 +195,136 @@ export async function analyzeSelectedContacts(
       }
     }
 
-    // Process contacts in batches - larger batches and higher concurrency for speed
-    const BATCH_SIZE = 10; // Larger batches for faster processing
-    const batches = [];
-    for (let i = 0; i < pageContacts.length; i += BATCH_SIZE) {
-      batches.push(pageContacts.slice(i, i + BATCH_SIZE));
-    }
+    // Process all contacts continuously - each contact completes independently
+    const conversationFetchLimiter = new ConcurrencyLimiter(50); // Higher concurrency
+    const analysisLimiter = new ConcurrencyLimiter(50); // Higher concurrency
 
-    const conversationFetchLimiter = new ConcurrencyLimiter(5); // Higher concurrency
-    const analysisLimiter = new ConcurrencyLimiter(5); // Higher concurrency
+    console.log(`[Analyze Selected] Processing ${pageContacts.length} contacts continuously...`);
 
-    for (const batch of batches) {
-      // Step 1: Fetch conversations and messages
-      const conversationResults = await Promise.all(
-        batch.map(contact =>
-          conversationFetchLimiter.execute(async () => {
+    // Process all contacts in one continuous flow
+    await Promise.all(
+      pageContacts.map(async (contact) => {
+        try {
+          // Step 1: Find conversation ID
+          let conversationInfo = contact.messengerPSID 
+            ? messengerConversationMap.get(contact.messengerPSID)
+            : null;
+
+          if (!conversationInfo && contact.instagramSID) {
+            conversationInfo = instagramConversationMap.get(contact.instagramSID);
+          }
+
+          if (!conversationInfo) {
+            failedCount++;
+            errors.push({ contactId: contact.id, error: 'Conversation not found' });
+            return;
+          }
+
+          // Step 2: Fetch messages (concurrency limited)
+          const messages = await conversationFetchLimiter.execute(async () => {
             try {
-              // Find conversation ID
-              let conversationInfo = contact.messengerPSID 
-                ? messengerConversationMap.get(contact.messengerPSID)
-                : null;
-
-              if (!conversationInfo && contact.instagramSID) {
-                conversationInfo = instagramConversationMap.get(contact.instagramSID);
-              }
-
-              if (!conversationInfo) {
-                return { contact, messages: null, error: 'Conversation not found' };
-              }
-
               // Use recent messages only (last 100) for faster analysis
-              const messages = await client.getRecentMessagesForConversation(conversationInfo.conversationId, 100);
-              return { contact, messages, error: null };
+              return await client.getRecentMessagesForConversation(conversationInfo!.conversationId, 100);
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-              return { contact, messages: null, error: errorMessage };
+              throw errorMessage;
             }
-          })
-        )
-      );
+          });
 
-      // Step 2: Analyze
-      const analysisResults = await Promise.all(
-        conversationResults.map(({ contact, messages, error }) =>
-          analysisLimiter.execute(async () => {
-            if (error) {
-              return { contact, analysis: null, error };
-            }
-
-            if (!messages || messages.length === 0) {
-              return { contact, analysis: null, error: 'No messages found' };
-            }
-
-            try {
-              // Prepare messages for analysis
-              const messagesToAnalyze = messages
-                .filter((msg: { message?: string }) => msg.message)
-                .map((msg: { 
-                  from?: { name?: string; username?: string; id?: string }; 
-                  message?: string; 
-                  created_time?: string 
-                }) => ({
-                  from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
-                  text: msg.message || '',
-                  timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
-                }))
-                .reverse();
-
-              if (messagesToAnalyze.length === 0) {
-                return { contact, analysis: null, error: 'No valid messages to analyze' };
-              }
-
-              // Analyze with AI
-              const { analysis } = await analyzeWithFallback(
-                messagesToAnalyze,
-                page.autoPipeline.stages,
-                contact.lastInteraction || undefined
-              );
-
-              return { contact, analysis, error: null };
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-              return { contact, analysis: null, error: errorMessage };
-            }
-          })
-        )
-      );
-
-      // Step 3: Update contacts and assign to pipeline
-      await Promise.all(
-        analysisResults.map(async ({ contact, analysis, error }) => {
-          if (error) {
+          if (!messages || messages.length === 0) {
             failedCount++;
-            errors.push({ contactId: contact.id, error });
+            errors.push({ contactId: contact.id, error: 'No messages found' });
             return;
           }
 
-          if (!analysis) {
+          // Step 3: Prepare messages for analysis
+          const messagesToAnalyze = messages
+            .filter((msg: { message?: string }) => msg.message)
+            .map((msg: { 
+              from?: { name?: string; username?: string; id?: string }; 
+              message?: string; 
+              created_time?: string 
+            }) => ({
+              from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
+              text: msg.message || '',
+              timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
+            }))
+            .reverse();
+
+          if (messagesToAnalyze.length === 0) {
             failedCount++;
-            errors.push({ contactId: contact.id, error: 'No analysis result' });
+            errors.push({ contactId: contact.id, error: 'No valid messages to analyze' });
             return;
           }
 
+          // Step 4: Analyze with AI (concurrency limited)
+          const { analysis } = await analysisLimiter.execute(async () => {
+            if (!page.autoPipeline) {
+              throw new Error('Auto-pipeline not configured');
+            }
+            return await analyzeWithFallback(
+              messagesToAnalyze,
+              page.autoPipeline.stages,
+              contact.lastInteraction || undefined
+            );
+          });
+
+          // Step 5: Update contact with AI context (immediate - contact appears in pipeline now)
           try {
-            // Update contact with AI context
-            try {
-              await prisma.contact.update({
-                where: { id: contact.id },
-                data: {
-                  aiContext: analysis.summary,
-                  aiContextUpdatedAt: new Date(),
-                },
+            await prisma.contact.update({
+              where: { id: contact.id },
+              data: {
+                aiContext: analysis.summary,
+                aiContextUpdatedAt: new Date(),
+              },
+            });
+          } catch (dbError: unknown) {
+            // Handle database connection errors
+            const dbErrorObj = dbError as { code?: string; message?: string };
+            if (dbErrorObj?.code === 'P1001' || dbErrorObj?.message?.includes("Can't reach database")) {
+              console.error(`[Analyze Selected] Database connection error for contact ${contact.id}:`, dbErrorObj.message);
+              failedCount++;
+              errors.push({ 
+                contactId: contact.id, 
+                error: 'Database connection failed. Please try again.' 
               });
-            } catch (dbError: any) {
-              // Handle database connection errors
-              if (dbError?.code === 'P1001' || dbError?.message?.includes("Can't reach database")) {
-                console.error(`[Analyze Selected] Database connection error for contact ${contact.id}:`, dbError.message);
-                failedCount++;
-                errors.push({ 
-                  contactId: contact.id, 
-                  error: 'Database connection failed. Please try again.' 
-                });
-                return; // Skip pipeline assignment if DB update failed
-              }
-              throw dbError; // Re-throw other errors
+              return; // Skip pipeline assignment if DB update failed
             }
-
-            // Assign to pipeline
-            try {
-              await autoAssignContactToPipeline({
-                contactId: contact.id,
-                aiAnalysis: analysis,
-                pipelineId: page.autoPipelineId!,
-                updateMode: page.autoPipelineMode,
-              });
-            } catch (pipelineError: any) {
-              // Handle database connection errors during pipeline assignment
-              if (pipelineError?.code === 'P1001' || pipelineError?.message?.includes("Can't reach database")) {
-                console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineError.message);
-                // Contact was updated but pipeline assignment failed - still count as partial success
-                failedCount++;
-                errors.push({ 
-                  contactId: contact.id, 
-                  error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
-                });
-                return;
-              }
-              throw pipelineError; // Re-throw other errors
-            }
-
-            successCount++;
-          } catch (error) {
-            failedCount++;
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            errors.push({ contactId: contact.id, error: errorMessage });
+            throw dbError; // Re-throw other errors
           }
-        })
-      );
-    }
+
+          // Step 6: Assign to pipeline (immediate - contact appears in pipeline now)
+          try {
+            await autoAssignContactToPipeline({
+              contactId: contact.id,
+              aiAnalysis: analysis,
+              pipelineId: page.autoPipelineId!,
+              updateMode: page.autoPipelineMode,
+            });
+          } catch (pipelineError: unknown) {
+            // Handle database connection errors during pipeline assignment
+            const pipelineErrorObj = pipelineError as { code?: string; message?: string };
+            if (pipelineErrorObj?.code === 'P1001' || pipelineErrorObj?.message?.includes("Can't reach database")) {
+              console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineErrorObj.message);
+              // Contact was updated but pipeline assignment failed - still count as partial success
+              failedCount++;
+              errors.push({ 
+                contactId: contact.id, 
+                error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+              });
+              return;
+            }
+            throw pipelineError; // Re-throw other errors
+          }
+
+          successCount++;
+        } catch (error) {
+          failedCount++;
+          const errorMessage = error instanceof Error ? error.message : (typeof error === 'string' ? error : 'Unknown error');
+          errors.push({ contactId: contact.id, error: errorMessage });
+        }
+      })
+    );
   }
 
   console.log(`[Analyze Selected] Completed: ${successCount} analyzed, ${failedCount} failed`);

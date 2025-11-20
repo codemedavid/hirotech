@@ -39,6 +39,7 @@ interface PipelineStageCardProps {
   searchQuery: string;
   currentPage: number;
   totalPages: number;
+  pipelineId?: string;
   onToggleSelection: () => void;
   onSearchChange: (query: string) => void;
   onToggleContactSelection: (stageId: string, contactId: string) => void;
@@ -54,6 +55,7 @@ export const PipelineStageCardVirtualized = memo(function PipelineStageCardVirtu
   searchQuery,
   currentPage,
   totalPages,
+  pipelineId,
   onToggleSelection,
   onSearchChange,
   onToggleContactSelection,
@@ -204,7 +206,13 @@ export const PipelineStageCardVirtualized = memo(function PipelineStageCardVirtu
                         className="mt-3"
                       />
                       <div className="flex-1">
-                        <Link href={`/contacts/${contact.id}`}>
+                        <Link 
+                          href={
+                            pipelineId 
+                              ? `/contacts/${contact.id}?returnTo=pipeline&pipelineId=${pipelineId}`
+                              : `/contacts/${contact.id}`
+                          }
+                        >
                           <ContactCard contact={contact} />
                         </Link>
                       </div>
