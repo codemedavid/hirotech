@@ -75,12 +75,11 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
   const [isBulkDisconnecting, setIsBulkDisconnecting] = useState(false);
   const [showBulkDisconnectDialog, setShowBulkDisconnectDialog] = useState(false);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const itemsPerPage = 5;
-
   // Format elapsed time
   const formatElapsedTime = (startedAt: string | null) => {
     if (!startedAt) return '';
@@ -851,7 +850,6 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
                       </Button>
                     </div>
                   </div>
-
                   {isSyncing && syncJob && (
                     <div className="space-y-3 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
                       <div className="flex items-center justify-between">
