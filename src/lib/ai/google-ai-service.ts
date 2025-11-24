@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import apiKeyManager from './api-key-manager';
 
 const RATE_LIMIT_RETRY_DELAY_MS = 6000; // 6 seconds between retries
 const MAX_ATTEMPTS = 3;
@@ -15,8 +16,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Get API key from environment variables
-function getApiKey(): string | null {
+// Get API key from database first, then fall back to environment variables
+async function getApiKey(): Promise<string | null> {
+  // Try database first (preferred method - can be managed through UI)
+  const dbKey = await apiKeyManager.getNextKey();
+  if (dbKey) {
+    return dbKey;
+  }
+  
+  // Fall back to environment variables if no database keys available
   return process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY || null;
 }
 
@@ -39,9 +47,9 @@ export async function analyzeConversation(
   }>,
   retries = 2
 ): Promise<string | null> {
-  const apiKey = getApiKey();
+  const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
     return null;
   }
 
@@ -103,6 +111,9 @@ Summary:`;
       return null;
     }
     
+    // Record success in database if key came from there
+    await apiKeyManager.recordSuccess(apiKey);
+    
     console.log(`[NVIDIA] ✅ Generated summary (${summary.length} chars)`);
     
     return summary.trim();
@@ -131,7 +142,10 @@ Summary:`;
 
       console.error('[NVIDIA] Rate limit persists after multiple attempts');
       
-      // Try again if we have retries left
+      // Mark key as rate-limited in database if it came from there
+      await apiKeyManager.markRateLimited(apiKey);
+      
+      // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversation(messages, retries - 1);
@@ -140,14 +154,17 @@ Summary:`;
       return null;
     }
     
-    // Check for 401 authentication errors
+      // Check for 401 authentication errors
     if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
       console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       
-      // Try again if we have retries left
+      // Mark key as invalid in database if it came from there
+      await apiKeyManager.markInvalid(apiKey, 'NVIDIA API authentication failed');
+      
+      // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
-        console.log('[NVIDIA] Retrying after authentication failure...');
+        console.log('[NVIDIA] Retrying with next available key...');
         return analyzeConversation(messages, retries - 1);
       }
       
@@ -159,8 +176,14 @@ Summary:`;
 }
 
 export async function getAvailableKeyCount(): Promise<number> {
-  // Return 1 if API key is available, 0 otherwise
-  return getApiKey() ? 1 : 0;
+  // Get count from database first
+  const dbCount = await apiKeyManager.getKeyCount();
+  if (dbCount > 0) {
+    return dbCount;
+  }
+  
+  // Fall back to environment variable check
+  return (process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY) ? 1 : 0;
 }
 
 // Generate follow-up message for AI automation
@@ -176,9 +199,9 @@ export async function generateFollowUpMessage(
   languageStyle?: string | null,
   retries = 2
 ): Promise<AIFollowUpResult | null> {
-  const apiKey = getApiKey();
+  const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
     return null;
   }
 
@@ -335,9 +358,9 @@ export async function analyzeConversationWithStageRecommendation(
   }>,
   retries = 2
 ): Promise<AIContactAnalysis | null> {
-  const apiKey = getApiKey();
+  const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
     return null;
   }
 
@@ -470,6 +493,10 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     }
     
     const analysis = JSON.parse(jsonMatch[0]) as AIContactAnalysis;
+    
+    // Record success in database if key came from there
+    await apiKeyManager.recordSuccess(apiKey);
+    
     console.log(`[NVIDIA] ✅ Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%, score: ${analysis.leadScore})`);
     
     return analysis;
@@ -485,7 +512,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     console.error('[NVIDIA] ❌ Stage recommendation failed:', errorMessage);
     console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
     
-    // Check if it's a rate limit error (429)
+      // Check if it's a rate limit error (429)
     if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
       const attemptNumber = keyAttempts + 1;
       if (attemptNumber < MAX_ATTEMPTS) {
@@ -504,7 +531,10 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 
       console.error('[NVIDIA] Rate limit persists for stage recommendation after multiple attempts');
       
-      // Try again if we have retries left
+      // Mark key as rate-limited in database if it came from there
+      await apiKeyManager.markRateLimited(apiKey);
+      
+      // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
         await sleep(RATE_LIMIT_RETRY_DELAY_MS);
         return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
@@ -513,14 +543,17 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       return null;
     }
     
-    // Check for 401 authentication errors
+      // Check for 401 authentication errors
     if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
       console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       
-      // Try again if we have retries left
+      // Mark key as invalid in database if it came from there
+      await apiKeyManager.markInvalid(apiKey, 'NVIDIA API authentication failed');
+      
+      // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
-        console.log('[NVIDIA] Retrying after authentication failure...');
+        console.log('[NVIDIA] Retrying with next available key...');
         return analyzeConversationWithStageRecommendation(messages, pipelineStages, retries - 1);
       }
       
@@ -544,9 +577,9 @@ export class GoogleAIService {
     context: PersonalizedMessageContext,
     retries = 2
   ): Promise<string> {
-    const apiKey = getApiKey();
+    const apiKey = await getApiKey();
     if (!apiKey) {
-      console.error('[NVIDIA] No API key available');
+      console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
       // Fallback to template
       return context.templateMessage
         .replace(/\{firstName\}/g, context.contactName)

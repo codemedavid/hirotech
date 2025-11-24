@@ -75,14 +75,16 @@ export function ApiKeysClient({ initialKeys }: ApiKeysClientProps) {
     try {
       // Support bulk paste (one key per line, with blank lines or extra text allowed)
       // Example accepted formats:
-      // - "sk-or-v1-..."
+      // - "sk-or-v1-..." (OpenRouter)
+      // - "nvapi-..." (NVIDIA)
       // - "> sir cj: sk-or-v1-..."
       const lines = newKey
         .split(/\r?\n/)
         .map(line => {
           const trimmed = line.trim();
           if (!trimmed) return '';
-          const match = trimmed.match(/sk-or-v1-[a-z0-9]+/i);
+          // Match OpenRouter keys (sk-or-v1-...) or NVIDIA keys (nvapi-...)
+          const match = trimmed.match(/(sk-or-v1-[a-z0-9]+|nvapi-[a-z0-9]+)/i);
           return match ? match[0] : '';
         })
         .filter(line => line.length > 0);

@@ -65,8 +65,8 @@ export default async function ApiKeysPage() {
     redirect('/login');
   }
 
-  // Check admin role
-  if (session.user.role !== 'ADMIN') {
+  // Check admin or developer role
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'DEVELOPER') {
     redirect('/settings');
   }
 
