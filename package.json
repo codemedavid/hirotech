@@ -4,14 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "npx prisma@6.19.0 generate && next build",
     "start": "next start",
     "lint": "eslint",
     "clean-prisma": "rimraf node_modules/.prisma node_modules/@prisma",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate || echo 'Prisma generate will run during build'",
+    "postinstall": "npx prisma@6.19.0 generate || echo 'Prisma generate will run during build'",
     "reset": "npm run clean-prisma && npm install && npm run prisma:push",
     "diagnose": "tsx scripts/diagnose.ts",
     "fix:campaigns": "npx tsx scripts/fix-stuck-campaigns.ts"
