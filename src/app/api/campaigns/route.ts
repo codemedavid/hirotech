@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
         targetStageIds: targetStageIds || [],
         targetContactIds: targetContactIds || [],
         rateLimit: rateLimit || 3600, // Default: 1 message per second
-      organizationId: validatedSession.user.organizationId,
-      createdById: validatedSession.user.id,
+        organizationId: validatedSession.user.organizationId,
+        createdById: validatedSession.user.id,
         // Scheduling
         status,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
