@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,25 @@ interface Campaign {
 
 export default function CampaignsPage() {
   const router = useRouter();
+  const pathname = usePathname();
+
+  // Check page access on mount
+  useEffect(() => {
+    async function checkPageAccess() {
+      try {
+        const response = await fetch(`/api/developer/page-access/check?path=${encodeURIComponent(pathname)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.isEnabled === false) {
+            router.replace(`/under-development?page=${encodeURIComponent(pathname)}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking page access:', error);
+      }
+    }
+    checkPageAccess();
+  }, [pathname, router]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('active');

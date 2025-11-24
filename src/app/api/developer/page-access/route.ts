@@ -21,10 +21,8 @@ export async function GET() {
       );
     }
 
+    // Get all global page access settings
     const pageAccesses = await prisma.pageAccess.findMany({
-      where: {
-        userId: session.user.id,
-      },
       orderBy: {
         pagePath: 'asc',
       },
@@ -76,21 +74,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upsert page access
+    // Upsert global page access (affects all users)
     const pageAccess = await prisma.pageAccess.upsert({
       where: {
-        userId_pagePath: {
-          userId: session.user.id,
-          pagePath: pagePath,
-        },
+        pagePath: pagePath,
       },
       update: {
         isEnabled,
+        disabledBy: !isEnabled ? session.user.id : null,
       },
       create: {
-        userId: session.user.id,
         pagePath: pagePath,
         isEnabled,
+        disabledBy: !isEnabled ? session.user.id : null,
       },
     });
 

@@ -38,13 +38,11 @@ export async function PATCH(
 
     const pageAccess = await prisma.pageAccess.update({
       where: {
-        userId_pagePath: {
-          userId: session.user.id,
-          pagePath: decodedPagePath,
-        },
+        pagePath: decodedPagePath,
       },
       data: {
         isEnabled,
+        disabledBy: !isEnabled ? session.user.id : null,
       },
     });
 
@@ -94,10 +92,7 @@ export async function DELETE(
 
     await prisma.pageAccess.delete({
       where: {
-        userId_pagePath: {
-          userId: session.user.id,
-          pagePath: decodedPagePath,
-        },
+        pagePath: decodedPagePath,
       },
     });
 

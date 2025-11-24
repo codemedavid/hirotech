@@ -1,22 +1,17 @@
 import { prisma } from '@/lib/db';
 
 /**
- * Check if a developer has access to a specific page
- * @param userId - The user ID
+ * Check if a page is globally enabled (affects all users)
  * @param pagePath - The page path (e.g., "/dashboard", "/contacts")
- * @returns true if access is enabled, false if disabled, null if no setting exists (default enabled)
+ * @returns true if enabled, false if disabled, null if no setting exists (default enabled)
  */
 export async function checkPageAccess(
-  userId: string,
   pagePath: string
 ): Promise<boolean | null> {
   try {
     const pageAccess = await prisma.pageAccess.findUnique({
       where: {
-        userId_pagePath: {
-          userId,
-          pagePath,
-        },
+        pagePath,
       },
     });
 

@@ -46,7 +46,6 @@ model User {
   reviewedRequests      TeamJoinRequest[]       @relation("ReviewedRequests")
   joinRequests          TeamJoinRequest[]
   teamMemberships       TeamMember[]
-  pageAccesses          PageAccess[]
   organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
@@ -1004,14 +1003,12 @@ enum ApiKeyStatus {
 
 model PageAccess {
   id        String   @id @default(cuid())
-  userId    String
-  pagePath  String // e.g., "/dashboard", "/contacts", "/campaigns"
+  pagePath  String   @unique // e.g., "/dashboard", "/contacts", "/campaigns" - Global setting
   isEnabled Boolean  @default(true)
+  disabledBy String? // Track which developer disabled it
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, pagePath])
-  @@index([userId])
   @@index([pagePath])
+  @@index([isEnabled])
 }

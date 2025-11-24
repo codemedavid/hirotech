@@ -125,7 +125,7 @@ export function PageAccessClient() {
         <div>
           <h1 className="text-3xl font-bold">Page Access Management</h1>
           <p className="text-muted-foreground mt-1">
-            Enable or disable access to specific pages
+            Enable or disable access to specific pages for all users
           </p>
         </div>
         <Button
@@ -143,7 +143,7 @@ export function PageAccessClient() {
         <CardHeader>
           <CardTitle>Available Pages</CardTitle>
           <CardDescription>
-            Toggle access to specific pages. Disabled pages will be inaccessible.
+            Toggle access to specific pages for all users. When disabled, all users will see an "Under Development" message when trying to access the page.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -183,6 +183,11 @@ export function PageAccessClient() {
                       <p className="text-xs text-muted-foreground font-mono">
                         {page.path}
                       </p>
+                      {!enabled && (
+                        <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-1">
+                          ⚠️ All users will see "Under Development" message
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center space-x-2">
