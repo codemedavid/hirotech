@@ -1,50 +1,48 @@
 import { NextResponse } from 'next/server';
-import { encryptKey, decryptKey } from '@/lib/crypto/encryption';
 
 /**
  * GET /api/test-encryption
- * Test endpoint to verify encryption is working
- * Only available in development or with proper auth
+ * Test if ENCRYPTION_KEY is available and valid
  */
 export async function GET() {
   try {
-    // Check if ENCRYPTION_KEY is set
-    const hasKey = !!process.env.ENCRYPTION_KEY;
-    const keyLength = process.env.ENCRYPTION_KEY?.length || 0;
-    const keyPreview = process.env.ENCRYPTION_KEY 
-      ? process.env.ENCRYPTION_KEY.substring(0, 8) + '...' 
-      : 'NOT SET';
-
-    // Test encryption/decryption
-    let encryptionWorks = false;
-    let errorMessage = '';
-
-    try {
-      const testText = 'test-encryption-key-12345';
-      const encrypted = encryptKey(testText);
-      const decrypted = decryptKey(encrypted);
-      encryptionWorks = decrypted === testText;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    
+    if (!encryptionKey) {
+      return NextResponse.json({
+        status: 'error',
+        message: 'ENCRYPTION_KEY is not set',
+        details: {
+          nodeEnv: process.env.NODE_ENV,
+          hasKey: false,
+          keyLength: 0,
+        },
+      }, { status: 500 });
     }
 
+    const isValidLength = encryptionKey.length === 64;
+    const isValidHex = /^[0-9a-f]{64}$/i.test(encryptionKey);
+
     return NextResponse.json({
-      success: encryptionWorks,
-      hasEncryptionKey: hasKey,
-      encryptionKeyLength: keyLength,
-      encryptionKeyPreview: keyPreview,
-      encryptionWorks,
-      error: errorMessage || null,
-      nodeEnv: process.env.NODE_ENV,
+      status: isValidLength && isValidHex ? 'ok' : 'error',
+      message: isValidLength && isValidHex 
+        ? 'ENCRYPTION_KEY is valid' 
+        : 'ENCRYPTION_KEY format is invalid',
+      details: {
+        hasKey: true,
+        keyLength: encryptionKey.length,
+        expectedLength: 64,
+        isValidLength,
+        isValidHex,
+        keyPrefix: encryptionKey.substring(0, 8) + '...',
+      },
     });
   } catch (error) {
-    return NextResponse.json(
-      { 
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      status: 'error',
+      message: 'Failed to check ENCRYPTION_KEY',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }, { status: 500 });
   }
 }
 

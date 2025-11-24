@@ -21,40 +21,22 @@ function getEncryptionKey(): Buffer {
       // Generate a deterministic temporary key for development
       return crypto.pbkdf2Sync('temporary-dev-key', 'salt', ITERATIONS, KEY_LENGTH, 'sha256');
     }
-    // Log detailed error for debugging
-    console.error('[Encryption] ENCRYPTION_KEY missing:', {
-      nodeEnv: process.env.NODE_ENV,
-      allEnvKeys: Object.keys(process.env).filter(k => k.includes('ENCRYPT')),
-    });
-    throw new Error('ENCRYPTION_KEY environment variable is required');
+    // Better error message for production
+    console.error('[Encryption] ENCRYPTION_KEY is missing! Check Vercel environment variables.');
+    throw new Error('ENCRYPTION_KEY environment variable is required. Please check your Vercel environment variables.');
   }
 
-  // Trim whitespace (in case it was added with spaces)
-  const trimmedKey = encryptionKey.trim();
-
   // Expect hex string, convert to buffer
-  if (trimmedKey.length !== 64) {
-    console.error('[Encryption] Invalid key length:', {
-      expected: 64,
-      actual: trimmedKey.length,
-      keyPreview: trimmedKey.substring(0, 8) + '...',
-    });
-    throw new Error(`ENCRYPTION_KEY must be 64 hex characters (32 bytes), got ${trimmedKey.length}`);
+  if (encryptionKey.length !== 64) {
+    console.error(`[Encryption] ENCRYPTION_KEY has invalid length: ${encryptionKey.length} (expected 64)`);
+    throw new Error(`ENCRYPTION_KEY must be 64 hex characters (32 bytes), but got ${encryptionKey.length} characters`);
   }
 
   try {
-    const buffer = Buffer.from(trimmedKey, 'hex');
-    // Verify it's actually 32 bytes
-    if (buffer.length !== 32) {
-      throw new Error(`Invalid key: decoded to ${buffer.length} bytes, expected 32`);
-    }
-    return buffer;
+    return Buffer.from(encryptionKey, 'hex');
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Invalid key')) {
-      throw error;
-    }
-    console.error('[Encryption] Failed to parse hex key:', error);
-    throw new Error('ENCRYPTION_KEY must be a valid hex string (64 hex characters)');
+    console.error('[Encryption] Failed to parse ENCRYPTION_KEY as hex:', error);
+    throw new Error('ENCRYPTION_KEY must be a valid hex string');
   }
 }
 
