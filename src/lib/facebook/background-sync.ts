@@ -258,7 +258,28 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
     // Sync Messenger contacts
     try {
       console.log(`[Background Sync ${jobId}] Fetching Messenger conversations...`);
-      const messengerConvos = await client.getMessengerConversations(page.pageId);
+      
+      // Add timeout wrapper to prevent hanging (5 minutes max for initial fetch)
+      const fetchWithTimeout = async (): Promise<any[]> => {
+        return Promise.race([
+          client.getMessengerConversations(page.pageId),
+          new Promise<any[]>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout: Fetching conversations took longer than 5 minutes')), 5 * 60 * 1000)
+          )
+        ]);
+      };
+      
+      // Update status to show we're fetching
+      await prisma.syncJob.update({
+        where: { id: jobId },
+        data: {
+          status: 'IN_PROGRESS',
+          syncedContacts: 0,
+          totalContacts: 0, // Will be updated once we know the count
+        },
+      });
+      
+      const messengerConvos = await fetchWithTimeout();
       console.log(`[Background Sync ${jobId}] Fetched ${messengerConvos.length} Messenger conversations`);
       
       // Update progress: conversations fetched
@@ -564,6 +585,20 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
         error: errorMessage,
         code: errorCode,
       });
+      
+      // If we failed to fetch conversations and have no contacts, mark as failed
+      if (syncedCount === 0 && errors.length > 0) {
+        await prisma.syncJob.update({
+          where: { id: jobId },
+          data: {
+            status: tokenExpired ? 'FAILED' : 'FAILED',
+            failedContacts: errors.length,
+            syncedContacts: 0,
+            totalContacts: 0,
+          },
+        });
+        return; // Exit early if we can't fetch conversations
+      }
     }
 
     // Sync Instagram contacts (if connected)
