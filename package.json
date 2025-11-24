@@ -14,7 +14,8 @@
     "postinstall": "prisma generate",
     "reset": "npm run clean-prisma && npm install && npm run prisma:push",
     "diagnose": "tsx scripts/diagnose.ts",
-    "fix:campaigns": "npx tsx scripts/fix-stuck-campaigns.ts"
+    "fix:campaigns": "npx tsx scripts/fix-stuck-campaigns.ts",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
