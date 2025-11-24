@@ -11,7 +11,7 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate || echo 'Prisma generate will run during build'",
+    "postinstall": "npx prisma@6.19.0 generate || echo 'Prisma generate will run during build'",
     "reset": "npm run clean-prisma && npm install && npm run prisma:push",
     "diagnose": "tsx scripts/diagnose.ts",
     "fix:campaigns": "npx tsx scripts/fix-stuck-campaigns.ts"
@@ -74,7 +74,8 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "use-debounce": "^10.0.6",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "typescript": "^5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -89,7 +90,6 @@
     "rimraf": "^6.1.0",
     "tailwindcss": "^4",
     "tsx": "^4.19.2",
-    "tw-animate-css": "^1.4.0",
-    "typescript": "^5"
+    "tw-animate-css": "^1.4.0"
   }
 }
