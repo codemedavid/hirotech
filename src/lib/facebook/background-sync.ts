@@ -259,14 +259,26 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
     try {
       console.log(`[Background Sync ${jobId}] Fetching Messenger conversations...`);
       
-      // Add timeout wrapper to prevent hanging (5 minutes max for initial fetch)
+      // Add timeout wrapper to prevent hanging (3 minutes max for initial fetch)
       const fetchWithTimeout = async (): Promise<any[]> => {
-        return Promise.race([
-          client.getMessengerConversations(page.pageId),
-          new Promise<any[]>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout: Fetching conversations took longer than 5 minutes')), 5 * 60 * 1000)
-          )
-        ]);
+        let timeoutId: NodeJS.Timeout;
+        const timeoutPromise = new Promise<any[]>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error('Timeout: Fetching conversations took longer than 3 minutes. The page may have too many conversations or there may be a network issue.'));
+          }, 3 * 60 * 1000);
+        });
+        
+        try {
+          const result = await Promise.race([
+            client.getMessengerConversations(page.pageId),
+            timeoutPromise,
+          ]);
+          clearTimeout(timeoutId!);
+          return result;
+        } catch (error) {
+          clearTimeout(timeoutId!);
+          throw error;
+        }
       };
       
       // Update status to show we're fetching
@@ -381,11 +393,18 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
           batch.map(task =>
             messageFetchLimiter.execute(async () => {
               try {
-                const messages = await client.getAllMessagesForConversation(task.conversationId);
+                // Add per-conversation timeout (30 seconds max per conversation)
+                const messages = await Promise.race([
+                  client.getAllMessagesForConversation(task.conversationId, 20), // Limit to 20 pages (2000 messages max)
+                  new Promise<any[]>((_, reject) => 
+                    setTimeout(() => reject(new Error(`Timeout: Fetching messages for conversation ${task.conversationId} took longer than 30 seconds`)), 30000)
+                  )
+                ]);
                 return { task, messages, error: null };
               } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                 const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+                console.warn(`[Background Sync ${jobId}] Failed to fetch messages for conversation ${task.conversationId}: ${errorMessage}`);
                 return { task, messages: null, error: { message: errorMessage, code: errorCode } };
               }
             })

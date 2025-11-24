@@ -293,17 +293,24 @@ export class FacebookClient {
       nextUrl = response.data.paging?.next || null;
       hasMore = !!nextUrl;
 
-      // Fetch all subsequent pages
+      // Fetch all subsequent pages with progress updates
       let pageCount = 1;
-      while (hasMore && nextUrl) {
+      const MAX_PAGES = 100; // Safety limit: max 100 pages (10,000 conversations)
+      while (hasMore && nextUrl && pageCount < MAX_PAGES) {
         try {
           if (pageCount % 10 === 0) {
             console.log(`[Facebook API] Fetched ${pageCount} pages, ${allConversations.length} Messenger conversations so far...`);
           }
           
-          const nextResponse = await axios.get(nextUrl, {
-            timeout: 30000, // 30 second timeout per request
-          });
+          // Add timeout per page request (20 seconds)
+          const nextResponse = await Promise.race([
+            axios.get(nextUrl, {
+              timeout: 20000, // 20 second timeout per request
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(`Page ${pageCount} request timed out after 20 seconds`)), 20000)
+            )
+          ]) as any;
           
           if (nextResponse.data.data && nextResponse.data.data.length > 0) {
             allConversations.push(...nextResponse.data.data);
@@ -319,7 +326,7 @@ export class FacebookClient {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         } catch (paginationError: any) {
-          console.error('Error fetching next page of Messenger conversations:', paginationError);
+          console.error(`[Facebook API] Error fetching page ${pageCount} of Messenger conversations:`, paginationError);
           
           // If we get rate limited, throw the error
           const fbError = paginationError.response?.data?.error;
@@ -327,10 +334,18 @@ export class FacebookClient {
             throw parseFacebookError(paginationError, `Rate limited while paginating conversations for Page ID: ${pageId}`);
           }
           
-          // For other pagination errors, log but continue with what we have
-          console.warn(`Failed to fetch page, continuing with ${allConversations.length} conversations already fetched`);
+          // For timeout or other pagination errors, log but continue with what we have
+          if (paginationError.message?.includes('timeout') || paginationError.code === 'ECONNABORTED') {
+            console.warn(`[Facebook API] Page ${pageCount} timed out, continuing with ${allConversations.length} conversations already fetched`);
+          } else {
+            console.warn(`[Facebook API] Failed to fetch page ${pageCount}, continuing with ${allConversations.length} conversations already fetched`);
+          }
           break;
         }
+      }
+      
+      if (pageCount >= MAX_PAGES) {
+        console.warn(`[Facebook API] Reached maximum page limit (${MAX_PAGES}), stopping pagination. Fetched ${allConversations.length} conversations total.`);
       }
 
       return allConversations;
@@ -343,35 +358,62 @@ export class FacebookClient {
    * Fetch ALL messages for a specific conversation with pagination
    * This ensures we get the complete conversation history for accurate AI analysis
    */
-  async getAllMessagesForConversation(conversationId: string): Promise<any[]> {
+  async getAllMessagesForConversation(conversationId: string, maxPages: number = 50): Promise<any[]> {
     const allMessages: any[] = [];
     let nextUrl: string | null = `${FB_GRAPH_URL}/${conversationId}/messages`;
     let hasMore = true;
+    let pageCount = 0;
+    const MAX_MESSAGE_PAGES = maxPages; // Safety limit
 
     try {
-      while (hasMore && nextUrl) {
-        const response: any = await axios.get(nextUrl, {
-          params: {
-            access_token: this.accessToken,
-            fields: 'from,message,created_time',
-            limit: 100 // 100 messages per page
+      while (hasMore && nextUrl && pageCount < MAX_MESSAGE_PAGES) {
+        try {
+          // Add timeout per page (15 seconds)
+          const response: any = await Promise.race([
+            axios.get(nextUrl, {
+              params: {
+                access_token: this.accessToken,
+                fields: 'from,message,created_time',
+                limit: 100, // 100 messages per page
+              },
+              timeout: 15000, // 15 second timeout per request
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(`Message page ${pageCount + 1} request timed out after 15 seconds`)), 15000)
+            )
+          ]) as any;
+
+          if (response.data.data?.length > 0) {
+            allMessages.push(...response.data.data);
           }
-        });
 
-        if (response.data.data?.length > 0) {
-          allMessages.push(...response.data.data);
-        }
+          nextUrl = response.data.paging?.next || null;
+          hasMore = !!nextUrl && response.data.data?.length > 0;
+          pageCount++;
 
-        nextUrl = response.data.paging?.next || null;
-        hasMore = !!nextUrl && response.data.data?.length > 0;
-
-        // Small delay to avoid rate limiting
-        if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay
+          // Small delay to avoid rate limiting
+          if (hasMore) {
+            await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay
+          }
+        } catch (pageError: any) {
+          console.error(`[Facebook Client] Error fetching message page ${pageCount + 1} for conversation ${conversationId}:`, pageError);
+          
+          // If timeout, continue with what we have
+          if (pageError.message?.includes('timeout') || pageError.code === 'ECONNABORTED') {
+            console.warn(`[Facebook Client] Message page ${pageCount + 1} timed out, continuing with ${allMessages.length} messages already fetched`);
+            break;
+          }
+          
+          // For other errors, return what we have
+          break;
         }
       }
 
-      console.log(`[Facebook Client] Fetched ${allMessages.length} total messages for conversation ${conversationId}`);
+      if (pageCount >= MAX_MESSAGE_PAGES) {
+        console.warn(`[Facebook Client] Reached maximum message page limit (${MAX_MESSAGE_PAGES}) for conversation ${conversationId}. Fetched ${allMessages.length} messages total.`);
+      }
+
+      console.log(`[Facebook Client] Fetched ${allMessages.length} total messages for conversation ${conversationId} (${pageCount} pages)`);
       return allMessages;
     } catch (error: any) {
       console.error(`[Facebook Client] Error fetching all messages for conversation ${conversationId}:`, error);
