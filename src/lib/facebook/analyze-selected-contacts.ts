@@ -109,7 +109,10 @@ export async function analyzeSelectedContacts(
     const hasAutoPipeline = page.autoPipelineId && page.autoPipeline;
     
     if (!hasAutoPipeline) {
-      console.log(`[Analyze Selected] Page ${page.pageName} has no auto-pipeline configured, will analyze without pipeline assignment`);
+      console.log(`[Analyze Selected] Page ${page.pageName} has no auto-pipeline configured (autoPipelineId: ${page.autoPipelineId || 'null'}), will analyze without pipeline assignment`);
+      console.log(`[Analyze Selected] To enable pipeline assignment, go to Settings → Facebook Pages → ${page.pageName} → Configure Auto-Pipeline`);
+    } else {
+      console.log(`[Analyze Selected] Page ${page.pageName} has auto-pipeline configured: ${page.autoPipeline?.name || 'Unknown'} (ID: ${page.autoPipelineId})`);
     }
 
     const client = new FacebookClient(page.pageAccessToken);
@@ -391,7 +394,12 @@ export async function analyzeSelectedContacts(
               }
             }
           } else {
-            console.log(`[Analyze Selected] Skipping pipeline assignment for contact ${contact.id} - ${!hasAutoPipeline ? 'no auto-pipeline configured' : 'missing pipeline ID'}`);
+            const reason = !hasAutoPipeline 
+              ? `no auto-pipeline configured for page ${page.pageName}` 
+              : !page.autoPipelineId 
+                ? 'missing pipeline ID' 
+                : 'unknown reason';
+            console.log(`[Analyze Selected] Skipping pipeline assignment for contact ${contact.id} - ${reason}`);
           }
 
           successCount++;
