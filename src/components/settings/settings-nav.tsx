@@ -15,8 +15,12 @@ export function SettingsNav({ userRole }: SettingsNavProps) {
   const navItems = [
     { name: 'Profile', href: '/settings/profile', icon: User },
     { name: 'Integrations', href: '/settings/integrations', icon: Plug },
-    { name: 'API Keys', href: '/settings/api-keys', icon: Key }, // All users can view API keys
   ];
+
+  // Add API Keys for developers only
+  if (userRole === 'DEVELOPER') {
+    navItems.push({ name: 'API Keys', href: '/settings/api-keys', icon: Key });
+  }
 
   // Add Developer Settings for developers only
   if (userRole === 'DEVELOPER') {

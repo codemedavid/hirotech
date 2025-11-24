@@ -65,11 +65,13 @@ export default async function ApiKeysPage() {
     redirect('/login');
   }
 
-  // All authenticated users can view API keys (read-only)
-  // Only developers can manage them (handled in client component)
-  const initialKeys = await getInitialKeys();
-  const isDeveloper = session.user.role === 'DEVELOPER';
+  // Check developer role only - redirect non-developers
+  if (session.user.role !== 'DEVELOPER') {
+    redirect('/settings');
+  }
 
-  return <ApiKeysClient initialKeys={initialKeys} isDeveloper={isDeveloper} />;
+  const initialKeys = await getInitialKeys();
+
+  return <ApiKeysClient initialKeys={initialKeys} isDeveloper={true} />;
 }
 

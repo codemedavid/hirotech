@@ -49,12 +49,10 @@ export function ApiKeysClient({ initialKeys, isDeveloper = false }: ApiKeysClien
   async function loadKeys() {
     try {
       setIsLoading(true);
-      // Use readonly endpoint for non-developers, full endpoint for developers
-      const endpoint = isDeveloper ? '/api/api-keys' : '/api/api-keys/readonly';
-      const response = await fetch(endpoint);
+      const response = await fetch('/api/api-keys');
       if (!response.ok) {
         if (response.status === 403) {
-          toast.error('Access denied');
+          toast.error('Developer access required');
           return;
         }
         throw new Error('Failed to load API keys');
@@ -213,10 +211,8 @@ export function ApiKeysClient({ initialKeys, isDeveloper = false }: ApiKeysClien
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">API Keys {isDeveloper ? 'Management' : 'Status'}</h1>
-          <p className="text-muted-foreground mt-1">
-            {isDeveloper ? 'Manage API keys for AI services' : 'View API keys status and usage'}
-          </p>
+          <h1 className="text-3xl font-bold">API Keys Management</h1>
+          <p className="text-muted-foreground mt-1">Manage API keys for AI services</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -228,16 +224,14 @@ export function ApiKeysClient({ initialKeys, isDeveloper = false }: ApiKeysClien
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          {isDeveloper && (
-            <Button onClick={() => setShowAddForm(!showAddForm)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add API Key
-            </Button>
-          )}
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add API Key
+          </Button>
         </div>
       </div>
 
-      {isDeveloper && showAddForm && (
+      {showAddForm && (
         <Card>
           <CardHeader>
             <CardTitle>Add New API Key</CardTitle>
@@ -342,46 +336,44 @@ export function ApiKeysClient({ initialKeys, isDeveloper = false }: ApiKeysClien
                       )}
                     </div>
                   </div>
-                  {isDeveloper && (
-                    <div className="flex items-center gap-2">
-                      {key.status === 'RATE_LIMITED' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUpdateStatus(key.id, 'ACTIVE')}
-                          title="Manually re-enable (before 24h)"
-                        >
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                          Re-enable
-                        </Button>
-                      )}
-                      {key.status === 'DISABLED' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUpdateStatus(key.id, 'ACTIVE')}
-                        >
-                          Enable
-                        </Button>
-                      )}
-                      {key.status === 'ACTIVE' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUpdateStatus(key.id, 'DISABLED')}
-                        >
-                          Disable
-                        </Button>
-                      )}
+                  <div className="flex items-center gap-2">
+                    {key.status === 'RATE_LIMITED' && (
                       <Button
-                        variant="destructive"
+                        variant="outline"
                         size="sm"
-                        onClick={() => handleDeleteKey(key.id)}
+                        onClick={() => handleUpdateStatus(key.id, 'ACTIVE')}
+                        title="Manually re-enable (before 24h)"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Re-enable
                       </Button>
-                    </div>
-                  )}
+                    )}
+                    {key.status === 'DISABLED' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUpdateStatus(key.id, 'ACTIVE')}
+                      >
+                        Enable
+                      </Button>
+                    )}
+                    {key.status === 'ACTIVE' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUpdateStatus(key.id, 'DISABLED')}
+                      >
+                        Disable
+                      </Button>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDeleteKey(key.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
