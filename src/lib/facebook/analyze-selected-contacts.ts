@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { FacebookClient } from './client';
 import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
+import { analyzeConversation } from '@/lib/ai/google-ai-service';
 import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
 
 /**
@@ -105,16 +106,10 @@ export async function analyzeSelectedContacts(
   for (const [, pageContacts] of contactsByPage) {
     const page = pageContacts[0].facebookPage;
     
-    if (!page.autoPipelineId || !page.autoPipeline) {
-      console.log(`[Analyze Selected] Page ${page.pageName} has no auto-pipeline configured, skipping`);
-      for (const contact of pageContacts) {
-        failedCount++;
-        errors.push({
-          contactId: contact.id,
-          error: 'Auto-pipeline not configured for this page',
-        });
-      }
-      continue;
+    const hasAutoPipeline = page.autoPipelineId && page.autoPipeline;
+    
+    if (!hasAutoPipeline) {
+      console.log(`[Analyze Selected] Page ${page.pageName} has no auto-pipeline configured, will analyze without pipeline assignment`);
     }
 
     const client = new FacebookClient(page.pageAccessToken);
@@ -258,16 +253,41 @@ export async function analyzeSelectedContacts(
           }
 
           // Step 4: Analyze with AI (concurrency limited)
-          const { analysis } = await analysisLimiter.execute(async () => {
-            if (!page.autoPipeline) {
-              throw new Error('Auto-pipeline not configured');
+          let analysis: { summary: string; leadScore?: number; recommendedStage?: string; leadStatus?: string; confidence?: number; reasoning?: string } | null = null;
+          
+          if (hasAutoPipeline && page.autoPipeline) {
+            // Use pipeline-based analysis with stage recommendation
+            const result = await analysisLimiter.execute(async () => {
+              return await analyzeWithFallback(
+                messagesToAnalyze,
+                page.autoPipeline!.stages,
+                contact.lastInteraction || undefined
+              );
+            });
+            analysis = result.analysis;
+          } else {
+            // Use simple analysis without pipeline
+            const summary = await analysisLimiter.execute(async () => {
+              return await analyzeConversation(messagesToAnalyze);
+            });
+            
+            if (!summary) {
+              throw new Error('AI analysis returned no summary');
             }
-            return await analyzeWithFallback(
-              messagesToAnalyze,
-              page.autoPipeline.stages,
-              contact.lastInteraction || undefined
-            );
-          });
+            
+            analysis = {
+              summary,
+              leadScore: 50, // Default score when no pipeline
+              recommendedStage: undefined,
+              leadStatus: undefined,
+              confidence: undefined,
+              reasoning: undefined,
+            };
+          }
+          
+          if (!analysis) {
+            throw new Error('Analysis failed');
+          }
 
           // Step 5: Update contact with AI context (immediate - contact appears in pipeline now)
           try {
@@ -293,28 +313,39 @@ export async function analyzeSelectedContacts(
             throw dbError; // Re-throw other errors
           }
 
-          // Step 6: Assign to pipeline (immediate - contact appears in pipeline now)
-          try {
-            await autoAssignContactToPipeline({
-              contactId: contact.id,
-              aiAnalysis: analysis,
-              pipelineId: page.autoPipelineId!,
-              updateMode: page.autoPipelineMode,
-            });
-          } catch (pipelineError: unknown) {
-            // Handle database connection errors during pipeline assignment
-            const pipelineErrorObj = pipelineError as { code?: string; message?: string };
-            if (pipelineErrorObj?.code === 'P1001' || pipelineErrorObj?.message?.includes("Can't reach database")) {
-              console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineErrorObj.message);
-              // Contact was updated but pipeline assignment failed - still count as partial success
-              failedCount++;
-              errors.push({ 
-                contactId: contact.id, 
-                error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+          // Step 6: Assign to pipeline (only if auto-pipeline is configured and analysis has required fields)
+          if (hasAutoPipeline && page.autoPipelineId && analysis.leadScore !== undefined && analysis.recommendedStage) {
+            try {
+              await autoAssignContactToPipeline({
+                contactId: contact.id,
+                aiAnalysis: {
+                  summary: analysis.summary,
+                  leadScore: analysis.leadScore,
+                  recommendedStage: analysis.recommendedStage,
+                  leadStatus: analysis.leadStatus || 'NEW',
+                  confidence: analysis.confidence || 50,
+                  reasoning: analysis.reasoning || 'AI analysis',
+                },
+                pipelineId: page.autoPipelineId,
+                updateMode: page.autoPipelineMode,
               });
-              return;
+            } catch (pipelineError: unknown) {
+              // Handle database connection errors during pipeline assignment
+              const pipelineErrorObj = pipelineError as { code?: string; message?: string };
+              if (pipelineErrorObj?.code === 'P1001' || pipelineErrorObj?.message?.includes("Can't reach database")) {
+                console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineErrorObj.message);
+                // Contact was updated but pipeline assignment failed - still count as partial success
+                failedCount++;
+                errors.push({ 
+                  contactId: contact.id, 
+                  error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+                });
+                return;
+              }
+              throw pipelineError; // Re-throw other errors
             }
-            throw pipelineError; // Re-throw other errors
+          } else {
+            console.log(`[Analyze Selected] Skipping pipeline assignment for contact ${contact.id} - no auto-pipeline configured`);
           }
 
           successCount++;
