@@ -15,8 +15,7 @@ export async function GET() {
     }
 
     // All authenticated users can view API keys (read-only)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const keys = await (prisma as any).apiKey.findMany({
+    const keys = await prisma.apiKey.findMany({
       orderBy: {
         createdAt: 'desc',
       },
@@ -40,15 +39,15 @@ export async function GET() {
       id: key.id,
       name: key.name,
       status: key.status,
-      rateLimitedAt: key.rateLimitedAt,
-      lastUsedAt: key.lastUsedAt,
-      lastSuccessAt: key.lastSuccessAt,
+      rateLimitedAt: key.rateLimitedAt ? key.rateLimitedAt.toISOString() : null,
+      lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null,
+      lastSuccessAt: key.lastSuccessAt ? key.lastSuccessAt.toISOString() : null,
       totalRequests: key.totalRequests,
       failedRequests: key.failedRequests,
       consecutiveFailures: key.consecutiveFailures,
       metadata: key.metadata,
-      createdAt: key.createdAt,
-      updatedAt: key.updatedAt,
+      createdAt: key.createdAt.toISOString(),
+      updatedAt: key.updatedAt.toISOString(),
     }));
 
     return NextResponse.json(safeKeys);

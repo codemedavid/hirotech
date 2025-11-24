@@ -11,8 +11,7 @@ export const metadata: Metadata = {
 
 // SSR helper to fetch API keys for initial render
 async function getInitialKeys() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const keys = await (prisma as any).apiKey.findMany({
+  const keys = await prisma.apiKey.findMany({
     orderBy: {
       createdAt: 'desc',
     },

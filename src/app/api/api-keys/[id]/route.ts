@@ -63,8 +63,8 @@ export async function PATCH(
       id: apiKey.id,
       name: apiKey.name,
       status: apiKey.status,
-      rateLimitedAt: apiKey.rateLimitedAt,
-      updatedAt: apiKey.updatedAt,
+      rateLimitedAt: apiKey.rateLimitedAt ? apiKey.rateLimitedAt.toISOString() : null,
+      updatedAt: apiKey.updatedAt.toISOString(),
     });
   } catch (error) {
     console.error('Update API key error:', error);

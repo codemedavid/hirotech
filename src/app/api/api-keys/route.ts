@@ -22,8 +22,7 @@ export async function GET() {
       );
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const keys = await (prisma as any).apiKey.findMany({
+    const keys = await prisma.apiKey.findMany({
       orderBy: {
         createdAt: 'desc',
       },
@@ -47,15 +46,15 @@ export async function GET() {
       id: key.id,
       name: key.name,
       status: key.status,
-      rateLimitedAt: key.rateLimitedAt,
-      lastUsedAt: key.lastUsedAt,
-      lastSuccessAt: key.lastSuccessAt,
+      rateLimitedAt: key.rateLimitedAt ? key.rateLimitedAt.toISOString() : null,
+      lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null,
+      lastSuccessAt: key.lastSuccessAt ? key.lastSuccessAt.toISOString() : null,
       totalRequests: key.totalRequests,
       failedRequests: key.failedRequests,
       consecutiveFailures: key.consecutiveFailures,
       metadata: key.metadata,
-      createdAt: key.createdAt,
-      updatedAt: key.updatedAt,
+      createdAt: key.createdAt.toISOString(),
+      updatedAt: key.updatedAt.toISOString(),
       // Calculate success rate
       successRate: key.totalRequests > 0 
         ? ((key.totalRequests - key.failedRequests) / key.totalRequests * 100).toFixed(1)
@@ -128,7 +127,7 @@ export async function POST(request: NextRequest) {
       name: string | null;
       status: string;
       metadata: unknown;
-      createdAt: Date;
+      createdAt: string;
     }> = [];
 
     for (const item of keysPayload) {
@@ -145,8 +144,7 @@ export async function POST(request: NextRequest) {
       const keyLength = rawKey.length;
 
       // Create API key record
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const apiKey = await (prisma as any).apiKey.create({
+      const apiKey = await prisma.apiKey.create({
         data: {
           name: item?.name?.trim() || null,
           encryptedKey,
@@ -164,7 +162,7 @@ export async function POST(request: NextRequest) {
         name: apiKey.name,
         status: apiKey.status,
         metadata: apiKey.metadata,
-        createdAt: apiKey.createdAt,
+        createdAt: apiKey.createdAt.toISOString(),
       });
     }
 
