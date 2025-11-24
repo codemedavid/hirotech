@@ -120,13 +120,19 @@ Summary:`;
   } catch (error: unknown) {
     // Enhanced error logging
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStatus = (error as any)?.status || (error as any)?.response?.status || 
+                       (errorMessage?.match(/(\d{3})\s+status/i)?.[1]);
     const errorDetails = error instanceof Error ? {
       name: error.name,
       message: error.message,
+      status: errorStatus,
       stack: error.stack?.split('\n').slice(0, 3).join('\n'),
-    } : { raw: String(error) };
+    } : { raw: String(error), status: errorStatus };
     
     console.error('[NVIDIA] ❌ Analysis failed:', errorMessage);
+    if (errorStatus) {
+      console.error(`[NVIDIA] HTTP Status: ${errorStatus}`);
+    }
     console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
     
     // Check if it's a rate limit error (429)
@@ -154,13 +160,29 @@ Summary:`;
       return null;
     }
     
-      // Check for 401 authentication errors
-    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
-      console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
+    // Check for 401/403 authentication/authorization errors
+    const statusCode = errorStatus || 
+                      ((error as any)?.status) || 
+                      ((error as any)?.response?.status) ||
+                      (errorMessage?.includes('403') ? 403 : errorMessage?.includes('401') ? 401 : null);
+    
+    const isAuthError = statusCode === 401 || 
+                       statusCode === 403 ||
+                       errorMessage?.includes('401') || 
+                       errorMessage?.includes('403') ||
+                       errorMessage?.includes('Forbidden') ||
+                       errorMessage?.includes('No auth') || 
+                       errorMessage?.includes('Unauthorized') || 
+                       errorMessage?.includes('User not found');
+    
+    if (isAuthError) {
+      const finalStatusCode = statusCode || (errorMessage?.includes('403') ? 403 : 401);
+      console.error(`[NVIDIA] 🔐 Authentication failed (${finalStatusCode}) - Invalid or expired API key`);
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
+      console.error(`[NVIDIA] Current key prefix: ${apiKey.substring(0, 12)}...`);
       
       // Mark key as invalid in database if it came from there
-      await apiKeyManager.markInvalid(apiKey, 'NVIDIA API authentication failed');
+      await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -330,6 +352,25 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       }
       
       return null;
+    }
+    
+    // Check for 401/403 authentication/authorization errors
+    const isAuthError = errorMessage?.includes('401') || 
+                       errorMessage?.includes('403') ||
+                       errorMessage?.includes('Forbidden') ||
+                       errorMessage?.includes('No auth') || 
+                       errorMessage?.includes('Unauthorized') || 
+                       (error instanceof Error && 'status' in error && (error.status === 401 || error.status === 403));
+    
+    if (isAuthError) {
+      const statusCode = (error as any)?.status || (errorMessage?.includes('403') ? 403 : 401);
+      console.error(`[NVIDIA] 🔐 Authentication failed (${statusCode}) - Invalid or expired API key`);
+      
+      // Get API key to mark as invalid
+      const apiKey = await getApiKey();
+      if (apiKey) {
+        await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
+      }
     }
     
     console.error('[NVIDIA] Follow-up generation failed:', errorMessage);
@@ -543,13 +584,29 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       return null;
     }
     
-      // Check for 401 authentication errors
-    if (errorMessage?.includes('401') || errorMessage?.includes('No auth') || errorMessage?.includes('Unauthorized') || errorMessage?.includes('User not found')) {
-      console.error('[NVIDIA] 🔐 Authentication failed - Invalid or expired API key');
+    // Check for 401/403 authentication/authorization errors
+    const errorStatus = (error as any)?.status || (error as any)?.response?.status || 
+                       (errorMessage?.match(/(\d{3})\s+status/i)?.[1]);
+    const statusCode = errorStatus || 
+                      (errorMessage?.includes('403') ? 403 : errorMessage?.includes('401') ? 401 : null);
+    
+    const isAuthError = statusCode === 401 || 
+                       statusCode === 403 ||
+                       errorMessage?.includes('401') || 
+                       errorMessage?.includes('403') ||
+                       errorMessage?.includes('Forbidden') ||
+                       errorMessage?.includes('No auth') || 
+                       errorMessage?.includes('Unauthorized') || 
+                       errorMessage?.includes('User not found');
+    
+    if (isAuthError) {
+      const finalStatusCode = statusCode || (errorMessage?.includes('403') ? 403 : 401);
+      console.error(`[NVIDIA] 🔐 Authentication failed (${finalStatusCode}) - Invalid or expired API key`);
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
+      console.error(`[NVIDIA] Current key prefix: ${apiKey.substring(0, 12)}...`);
       
       // Mark key as invalid in database if it came from there
-      await apiKeyManager.markInvalid(apiKey, 'NVIDIA API authentication failed');
+      await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -651,7 +708,26 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
 
         console.error('[NVIDIA] Rate limit persists after multiple attempts');
       } else {
-        console.error('[NVIDIA] Personalization failed:', errorMessage);
+        // Check for 401/403 authentication/authorization errors
+        const isAuthError = errorMessage?.includes('401') || 
+                           errorMessage?.includes('403') ||
+                           errorMessage?.includes('Forbidden') ||
+                           errorMessage?.includes('No auth') || 
+                           errorMessage?.includes('Unauthorized') || 
+                           (error instanceof Error && 'status' in error && (error.status === 401 || error.status === 403));
+        
+        if (isAuthError) {
+          const statusCode = (error as any)?.status || (errorMessage?.includes('403') ? 403 : 401);
+          console.error(`[NVIDIA] 🔐 Authentication failed (${statusCode}) - Invalid or expired API key`);
+          
+          // Get API key to mark as invalid
+          const apiKey = await getApiKey();
+          if (apiKey) {
+            await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
+          }
+        } else {
+          console.error('[NVIDIA] Personalization failed:', errorMessage);
+        }
       }
 
       // Fallback to template
