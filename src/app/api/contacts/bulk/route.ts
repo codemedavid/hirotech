@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
 import { analyzeSelectedContacts } from '@/lib/facebook/analyze-selected-contacts';
+import { validateSession } from '@/lib/api/validate-session';
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const validation = validateSession(session);
+    if ('error' in validation) {
+      return validation.error;
     }
+    const { session: validatedSession } = validation;
 
     let body;
     try {
@@ -35,7 +38,7 @@ export async function POST(request: NextRequest) {
       contacts = await prisma.contact.findMany({
         where: {
           id: { in: contactIds },
-          organizationId: session.user.organizationId,
+          organizationId: validatedSession.user.organizationId,
         },
         select: { id: true, tags: true },
       });
@@ -91,7 +94,7 @@ export async function POST(request: NextRequest) {
             prisma.tag.updateMany({
               where: {
                 name: tag,
-                organizationId: session.user.organizationId,
+                organizationId: validatedSession.user.organizationId,
               },
               data: {
                 contactCount: { increment: contactIds.length },
@@ -107,7 +110,7 @@ export async function POST(request: NextRequest) {
             type: 'TAG_ADDED',
             title: `Bulk tags added: ${data.tags.join(', ')}`,
             metadata: { tags: data.tags },
-            userId: session.user.id,
+            userId: validatedSession.user.id,
           })),
         });
 
@@ -141,7 +144,7 @@ export async function POST(request: NextRequest) {
             prisma.tag.updateMany({
               where: {
                 name: tag,
-                organizationId: session.user.organizationId,
+                organizationId: validatedSession.user.organizationId,
               },
               data: {
                 contactCount: { decrement: contactIds.length },
@@ -166,7 +169,7 @@ export async function POST(request: NextRequest) {
           where: {
             id: data.stageId,
             pipeline: {
-              organizationId: session.user.organizationId,
+              organizationId: validatedSession.user.organizationId,
             },
           },
         });
@@ -194,7 +197,7 @@ export async function POST(request: NextRequest) {
             type: 'STAGE_CHANGED',
             title: `Bulk moved to ${stage.name}`,
             toStageId: data.stageId,
-            userId: session.user.id,
+            userId: validatedSession.user.id,
           })),
         });
 
@@ -236,7 +239,7 @@ export async function POST(request: NextRequest) {
         try {
           const analyzeResult = await analyzeSelectedContacts(
             contactIds,
-            session.user.organizationId
+            validatedSession.user.organizationId
           );
 
           result = {

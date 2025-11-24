@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/validate-session';
 
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const validation = validateSession(session);
+    if ('error' in validation) {
+      return validation.error;
     }
+    const { session: validatedSession } = validation;
 
     const campaigns = await prisma.campaign.findMany({
-      where: { organizationId: session.user.organizationId },
+      where: { organizationId: validatedSession.user.organizationId },
       orderBy: { createdAt: 'desc' },
       include: {
         template: true,
@@ -89,8 +92,8 @@ export async function POST(request: NextRequest) {
         targetStageIds: targetStageIds || [],
         targetContactIds: targetContactIds || [],
         rateLimit: rateLimit || 3600, // Default: 1 message per second
-        organizationId: session.user.organizationId,
-        createdById: session.user.id,
+      organizationId: validatedSession.user.organizationId,
+      createdById: validatedSession.user.id,
         // Scheduling
         status,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
