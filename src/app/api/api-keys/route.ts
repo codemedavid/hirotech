@@ -183,15 +183,33 @@ export async function POST(request: NextRequest) {
     console.error('Create API key error:', error);
     
     // Check if it's an encryption error
-    if (error instanceof Error && error.message.includes('ENCRYPTION_KEY')) {
-      return NextResponse.json(
-        { error: 'Encryption configuration error. Please check ENCRYPTION_KEY environment variable.' },
-        { status: 500 }
-      );
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      
+      if (errorMessage.includes('encryption_key') || 
+          errorMessage.includes('encryption') ||
+          errorMessage.includes('cipher') ||
+          errorMessage.includes('decrypt')) {
+        console.error('Encryption error details:', {
+          message: error.message,
+          stack: error.stack,
+          hasEncryptionKey: !!process.env.ENCRYPTION_KEY,
+          encryptionKeyLength: process.env.ENCRYPTION_KEY?.length,
+          nodeEnv: process.env.NODE_ENV,
+        });
+        
+        return NextResponse.json(
+          { 
+            error: 'Encryption configuration error. Please check ENCRYPTION_KEY environment variable.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json(
-      { error: 'Failed to create API key' },
+      { error: 'Failed to create API key', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

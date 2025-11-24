@@ -58,6 +58,18 @@ Then update `FACEBOOK_WEBHOOK_VERIFY_TOKEN` with the generated value.
 REDIS_URL=redis://default:KGg04axFynrwFjFjFaEEX5yK3lPAVpyN@redis-14778.c326.us-east-1-3.ec2.redns.redis-cloud.com:14778
 ```
 
+### 🔒 REQUIRED - Encryption Key (API Key Encryption)
+
+```env
+ENCRYPTION_KEY=f902ad293f5f9af42c98b007dfdc0eede8614ac2be7a985c23347e051f3bcf81
+```
+
+**⚠️ IMPORTANT:** This key is used to encrypt API keys in the database. Keep it secure!
+**Note:** If you need to generate a new key, run:
+```bash
+npx tsx scripts/generate-encryption-key.ts
+```
+
 ---
 
 ## 🎯 Step-by-Step Vercel Setup
