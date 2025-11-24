@@ -86,7 +86,6 @@
     "concurrently": "^9.1.2",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
-    "prisma": "6.19.0",
     "rimraf": "^6.1.0",
     "tailwindcss": "^4",
     "tsx": "^4.19.2",
