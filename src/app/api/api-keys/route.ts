@@ -5,7 +5,7 @@ import { encryptKey } from '@/lib/crypto/encryption';
 
 /**
  * GET /api/api-keys
- * List all API keys (admin or developer only)
+ * List all API keys (developer only)
  */
 export async function GET() {
   try {
@@ -14,10 +14,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin or developer role
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'DEVELOPER') {
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
       return NextResponse.json(
-        { error: 'Forbidden - Admin or Developer access required' },
+        { error: 'Forbidden - Developer access required' },
         { status: 403 }
       );
     }
@@ -78,7 +78,7 @@ export async function GET() {
 
 /**
  * POST /api/api-keys
- * Add a new API key (admin or developer only)
+ * Add a new API key (developer only)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -87,10 +87,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin or developer role
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'DEVELOPER') {
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
       return NextResponse.json(
-        { error: 'Forbidden - Admin or Developer access required' },
+        { error: 'Forbidden - Developer access required' },
         { status: 403 }
       );
     }

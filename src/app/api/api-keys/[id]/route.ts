@@ -9,7 +9,7 @@ interface RouteParams {
 
 /**
  * PATCH /api/api-keys/[id]
- * Update an API key (name, status) (admin or developer only)
+ * Update an API key (name, status) (developer only)
  */
 export async function PATCH(
   request: NextRequest,
@@ -21,10 +21,10 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin or developer role
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'DEVELOPER') {
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
       return NextResponse.json(
-        { error: 'Forbidden - Admin or Developer access required' },
+        { error: 'Forbidden - Developer access required' },
         { status: 403 }
       );
     }
@@ -86,7 +86,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/api-keys/[id]
- * Soft delete an API key (mark as DISABLED) (admin or developer only)
+ * Soft delete an API key (mark as DISABLED) (developer only)
  */
 export async function DELETE(
   request: NextRequest,
@@ -98,10 +98,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin or developer role
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'DEVELOPER') {
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
       return NextResponse.json(
-        { error: 'Forbidden - Admin or Developer access required' },
+        { error: 'Forbidden - Developer access required' },
         { status: 403 }
       );
     }

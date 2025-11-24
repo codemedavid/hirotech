@@ -17,8 +17,8 @@ export function SettingsNav({ userRole }: SettingsNavProps) {
     { name: 'Integrations', href: '/settings/integrations', icon: Plug },
   ];
 
-  // Add API Keys for admin or developer
-  if (userRole === 'ADMIN' || userRole === 'DEVELOPER') {
+  // Add API Keys for developers only
+  if (userRole === 'DEVELOPER') {
     navItems.push({ name: 'API Keys', href: '/settings/api-keys', icon: Key });
   }
 
