@@ -105,6 +105,12 @@ Summary:`;
       }, Usage: ${JSON.stringify(completion.usage || {})}`
     );
 
+    // Check if choices array exists and has items
+    if (!completion.choices || completion.choices.length === 0) {
+      console.error('[NVIDIA] No choices in response. Full response:', JSON.stringify(completion, null, 2));
+      return null;
+    }
+
     const summary = completion.choices[0]?.message?.content;
     if (!summary) {
       console.error('[NVIDIA] No response content received. Full response:', JSON.stringify(completion, null, 2));
@@ -292,6 +298,12 @@ Respond ONLY with valid JSON (no markdown, no explanation):
         },
       ],
     });
+
+    // Check if choices array exists and has items
+    if (!completion.choices || completion.choices.length === 0) {
+      console.error('[NVIDIA] No choices in response for follow-up message. Full response:', JSON.stringify(completion, null, 2));
+      return null;
+    }
 
     const text = completion.choices[0]?.message?.content?.trim();
     if (!text) {
@@ -520,6 +532,12 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       }, Usage: ${JSON.stringify(completion.usage || {})}`
     );
 
+    // Check if choices array exists and has items
+    if (!completion.choices || completion.choices.length === 0) {
+      console.error('[NVIDIA] No choices in response for stage recommendation. Full response:', JSON.stringify(completion, null, 2));
+      return null;
+    }
+
     const text = completion.choices[0]?.message?.content?.trim();
     if (!text) {
       console.error('[NVIDIA] No response content received. Full response:', JSON.stringify(completion, null, 2));
@@ -681,6 +699,15 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
           },
         ],
       });
+
+      // Check if choices array exists and has items
+      if (!completion.choices || completion.choices.length === 0) {
+        console.error('[NVIDIA] No choices in response for personalized message. Full response:', JSON.stringify(completion, null, 2));
+        // Fallback to template
+        return context.templateMessage
+          .replace(/\{firstName\}/g, context.contactName)
+          .replace(/\{name\}/g, context.contactName);
+      }
 
       const personalizedMessage = completion.choices[0]?.message?.content?.trim();
       if (!personalizedMessage) {
