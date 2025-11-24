@@ -314,38 +314,84 @@ export async function analyzeSelectedContacts(
           }
 
           // Step 6: Assign to pipeline (only if auto-pipeline is configured and analysis has required fields)
-          if (hasAutoPipeline && page.autoPipelineId && analysis.leadScore !== undefined && analysis.recommendedStage) {
-            try {
-              await autoAssignContactToPipeline({
-                contactId: contact.id,
-                aiAnalysis: {
-                  summary: analysis.summary,
-                  leadScore: analysis.leadScore,
-                  recommendedStage: analysis.recommendedStage,
-                  leadStatus: analysis.leadStatus || 'NEW',
-                  confidence: analysis.confidence || 50,
-                  reasoning: analysis.reasoning || 'AI analysis',
-                },
-                pipelineId: page.autoPipelineId,
-                updateMode: page.autoPipelineMode,
+          if (hasAutoPipeline && page.autoPipelineId) {
+            // Check if we have the minimum required fields for pipeline assignment
+            const hasLeadScore = analysis.leadScore !== undefined && analysis.leadScore !== null;
+            const hasRecommendedStage = analysis.recommendedStage && analysis.recommendedStage.trim().length > 0;
+            
+            if (!hasLeadScore || !hasRecommendedStage) {
+              console.warn(`[Analyze Selected] Missing required fields for pipeline assignment for contact ${contact.id}:`, {
+                hasLeadScore,
+                leadScore: analysis.leadScore,
+                hasRecommendedStage,
+                recommendedStage: analysis.recommendedStage,
               });
-            } catch (pipelineError: unknown) {
-              // Handle database connection errors during pipeline assignment
-              const pipelineErrorObj = pipelineError as { code?: string; message?: string };
-              if (pipelineErrorObj?.code === 'P1001' || pipelineErrorObj?.message?.includes("Can't reach database")) {
-                console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineErrorObj.message);
-                // Contact was updated but pipeline assignment failed - still count as partial success
+              // Use fallback values if missing
+              const fallbackLeadScore = analysis.leadScore ?? 50;
+              const fallbackStage = analysis.recommendedStage || page.autoPipeline?.stages[0]?.name || 'New Lead';
+              
+              console.log(`[Analyze Selected] Using fallback values: score=${fallbackLeadScore}, stage=${fallbackStage}`);
+              
+              try {
+                await autoAssignContactToPipeline({
+                  contactId: contact.id,
+                  aiAnalysis: {
+                    summary: analysis.summary,
+                    leadScore: fallbackLeadScore,
+                    recommendedStage: fallbackStage,
+                    leadStatus: analysis.leadStatus || 'NEW',
+                    confidence: analysis.confidence || 50,
+                    reasoning: analysis.reasoning || `AI analysis completed but some fields missing. Score: ${fallbackLeadScore}`,
+                  },
+                  pipelineId: page.autoPipelineId,
+                  updateMode: page.autoPipelineMode,
+                });
+                console.log(`[Analyze Selected] Successfully assigned contact ${contact.id} to pipeline using fallback values`);
+              } catch (fallbackError: unknown) {
+                const fallbackErrorObj = fallbackError as { code?: string; message?: string };
+                console.error(`[Analyze Selected] Failed to assign contact ${contact.id} to pipeline even with fallback values:`, fallbackErrorObj.message);
                 failedCount++;
                 errors.push({ 
                   contactId: contact.id, 
-                  error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+                  error: `Pipeline assignment failed: ${fallbackErrorObj.message || 'Unknown error'}` 
                 });
-                return;
               }
-              throw pipelineError; // Re-throw other errors
+            } else {
+              // All required fields present - normal assignment
+              try {
+                await autoAssignContactToPipeline({
+                  contactId: contact.id,
+                  aiAnalysis: {
+                    summary: analysis.summary,
+                    leadScore: analysis.leadScore!,
+                    recommendedStage: analysis.recommendedStage!,
+                    leadStatus: analysis.leadStatus || 'NEW',
+                    confidence: analysis.confidence || 50,
+                    reasoning: analysis.reasoning || 'AI analysis',
+                  },
+                  pipelineId: page.autoPipelineId,
+                  updateMode: page.autoPipelineMode,
+                });
+                console.log(`[Analyze Selected] Successfully assigned contact ${contact.id} to pipeline`);
+              } catch (pipelineError: unknown) {
+                // Handle database connection errors during pipeline assignment
+                const pipelineErrorObj = pipelineError as { code?: string; message?: string };
+                if (pipelineErrorObj?.code === 'P1001' || pipelineErrorObj?.message?.includes("Can't reach database")) {
+                  console.error(`[Analyze Selected] Database connection error during pipeline assignment for contact ${contact.id}:`, pipelineErrorObj.message);
+                  // Contact was updated but pipeline assignment failed - still count as partial success
+                  failedCount++;
+                  errors.push({ 
+                    contactId: contact.id, 
+                    error: 'Contact analyzed but pipeline assignment failed due to database connection issue.' 
+                  });
+                  return;
+                }
+                console.error(`[Analyze Selected] Pipeline assignment error for contact ${contact.id}:`, pipelineErrorObj.message);
+                throw pipelineError; // Re-throw other errors
+              }
             }
           } else {
-            console.log(`[Analyze Selected] Skipping pipeline assignment for contact ${contact.id} - no auto-pipeline configured`);
+            console.log(`[Analyze Selected] Skipping pipeline assignment for contact ${contact.id} - ${!hasAutoPipeline ? 'no auto-pipeline configured' : 'missing pipeline ID'}`);
           }
 
           successCount++;
