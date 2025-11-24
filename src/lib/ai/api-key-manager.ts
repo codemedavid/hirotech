@@ -128,7 +128,7 @@ class ApiKeyManager {
       // Invalidate cache to exclude this key
       await this.refreshActiveKeys();
       
-      console.log(`[ApiKeyManager] Marked key ${apiKey.id} (${apiKey.name || 'unnamed'}) as rate-limited`);
+      console.log(`[ApiKeyManager] Marked key ${apiKey.id} as rate-limited`);
     } catch (error) {
       console.error('[ApiKeyManager] Error marking key as rate-limited:', error);
     }
