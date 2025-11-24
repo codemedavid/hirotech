@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { prisma } from '@/lib/db';
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -61,43 +60,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Check developer page access
-  if (user && !isAuthPage) {
-    try {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { role: true },
-      });
-
-      // If user is a developer, check page access
-      if (dbUser?.role === 'DEVELOPER') {
-        try {
-          const pageAccess = await prisma.pageAccess.findUnique({
-            where: {
-              userId_pagePath: {
-                userId: user.id,
-                pagePath: pathname,
-              },
-            },
-          });
-
-          // If page access is explicitly disabled, redirect to dashboard
-          if (pageAccess && !pageAccess.isEnabled) {
-            console.log('[Middleware] 🚫 Developer page access denied:', pathname);
-            const url = request.nextUrl.clone();
-            url.pathname = '/dashboard';
-            return NextResponse.redirect(url);
-          }
-        } catch (pageAccessError) {
-          // If PageAccess model doesn't exist or query fails, allow access
-          console.warn('[Middleware] PageAccess check failed, allowing access:', pageAccessError);
-        }
-      }
-    } catch (error) {
-      // On error, allow access (fail open)
-      console.error('[Middleware] Error checking developer access:', error);
-    }
-  }
+  // Note: Page access check for developers is handled in API routes and page components
+  // Middleware runs in Edge Runtime which doesn't support Prisma
+  // Developer page access is enforced at the page/API route level instead
 
   console.log('[Middleware] ✅ Allowing request');
   return supabaseResponse;

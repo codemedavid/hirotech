@@ -21,8 +21,8 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.prismaGlobal = prisma;
 }
 
-// Graceful shutdown
-if (process.env.NODE_ENV === 'production') {
+// Graceful shutdown (only in Node.js runtime, not Edge Runtime)
+if (process.env.NODE_ENV === 'production' && typeof process !== 'undefined' && process.on) {
   process.on('beforeExit', async () => {
     await prisma.$disconnect();
   });
