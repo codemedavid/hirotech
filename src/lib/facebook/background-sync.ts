@@ -5,6 +5,16 @@ import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
 import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
 import { applyStageScoreRanges } from '@/lib/pipelines/stage-analyzer';
 
+type FacebookPageWithPipeline = Prisma.FacebookPageGetPayload<{
+  include: {
+    autoPipeline: {
+      include: {
+        stages: true;
+      };
+    };
+  };
+}>;
+
 interface BackgroundSyncResult {
   success: boolean;
   jobId: string;
@@ -198,7 +208,7 @@ async function getExistingContactsMap(
  */
 async function processParticipantBatch(
   batch: Array<{ participantId: string; conversationId: string; updatedTime: string }>,
-  page: any,
+  page: FacebookPageWithPipeline,
   client: FacebookClient,
   jobId: string,
   messageFetchLimiter: ConcurrencyLimiter,
