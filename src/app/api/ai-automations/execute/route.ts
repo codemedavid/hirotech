@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
               aiPromptUsed: rule.customPrompt,
               generatedMessage: aiResult.message,
               aiReasoning: aiResult.reasoning,
-              previousMessages: conversationHistory as Prisma.JsonValue,
+              previousMessages: conversationHistory as Prisma.InputJsonValue,
               status: 'sent',
               facebookMessageId: result.data?.message_id,
               executedAt: new Date(),
