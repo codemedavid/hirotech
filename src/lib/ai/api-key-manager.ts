@@ -52,7 +52,7 @@ class ApiKeyManager {
       await prisma.apiKey.update({
         where: { id: keyId },
         data: { lastUsedAt: new Date() },
-      }).catch(err => {
+      }).catch((err: unknown) => {
         // Non-critical, just log
         console.warn('[ApiKeyManager] Failed to update lastUsedAt:', err);
       });
@@ -86,7 +86,7 @@ class ApiKeyManager {
         },
       });
 
-      this.activeKeyIds = activeKeys.map(k => k.id);
+      this.activeKeyIds = activeKeys.map((k: { id: string }) => k.id);
       this.lastRefresh = Date.now();
       
       if (this.activeKeyIds.length > 0) {
@@ -107,7 +107,7 @@ class ApiKeyManager {
   async markRateLimited(keyIdOrDecryptedKey: string): Promise<void> {
     try {
       // Find key by ID or by matching decrypted key
-      let apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
+      const apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
 
       if (!apiKey) {
         console.warn('[ApiKeyManager] Key not found for rate limit marking');
@@ -191,6 +191,46 @@ class ApiKeyManager {
       }
     } catch (error) {
       console.warn('[ApiKeyManager] Error recording failure:', error);
+    }
+  }
+
+  /**
+   * Mark a key as invalid (401/authentication errors)
+   * Disables the key and removes it from active rotation
+   */
+  async markInvalid(keyIdOrDecryptedKey: string, reason: string = 'Authentication failed'): Promise<void> {
+    try {
+      const apiKeyRecord = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
+
+      if (!apiKeyRecord) {
+        console.warn('[ApiKeyManager] Key not found for invalidation marking');
+        return;
+      }
+
+      // Get full key record to access name
+      const fullKey = await prisma.apiKey.findUnique({
+        where: { id: apiKeyRecord.id },
+        select: { id: true, name: true },
+      });
+
+      await prisma.apiKey.update({
+        where: { id: apiKeyRecord.id },
+        data: {
+          status: ApiKeyStatus.DISABLED,
+          consecutiveFailures: { increment: 1 },
+          failedRequests: { increment: 1 },
+          totalRequests: { increment: 1 },
+        },
+      });
+
+      // Invalidate cache to exclude this key
+      await this.refreshActiveKeys();
+      
+      const keyName = fullKey?.name || 'unnamed';
+      console.error(`[ApiKeyManager] ⚠️ Marked key ${apiKeyRecord.id} (${keyName}) as DISABLED - ${reason}`);
+      console.error(`[ApiKeyManager] Please check this key in the API Keys settings and update it if needed`);
+    } catch (error) {
+      console.error('[ApiKeyManager] Error marking key as invalid:', error);
     }
   }
 

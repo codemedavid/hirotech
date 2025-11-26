@@ -1,4 +1,13 @@
-export default function DashboardPage() {
+import { getPageAccessStatus } from '@/lib/developer/get-page-access';
+import UnderDevelopmentPage from '../under-development/page';
+
+export default async function DashboardPage() {
+  const pageAccess = await getPageAccessStatus('/dashboard');
+  
+  if (pageAccess === false) {
+    return <UnderDevelopmentPage searchParams={Promise.resolve({ page: '/dashboard' })} />;
+  }
+
   return (
     <div className="space-y-8">
       <div className="space-y-2">

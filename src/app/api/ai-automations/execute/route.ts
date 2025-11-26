@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
 
     const thresholdDate = new Date(now.getTime() - thresholdMs);
 
-    // Build where clause for finding eligible conversations
-    const whereClause: any = {
+    // Build where clause for finding eligible contacts
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: Record<string, any> = {
       organizationId: user.organizationId,
       lastInteraction: {
         lte: thresholdDate,

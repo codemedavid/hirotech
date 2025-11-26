@@ -21,17 +21,21 @@ function getEncryptionKey(): Buffer {
       // Generate a deterministic temporary key for development
       return crypto.pbkdf2Sync('temporary-dev-key', 'salt', ITERATIONS, KEY_LENGTH, 'sha256');
     }
-    throw new Error('ENCRYPTION_KEY environment variable is required');
+    // Better error message for production
+    console.error('[Encryption] ENCRYPTION_KEY is missing! Check Vercel environment variables.');
+    throw new Error('ENCRYPTION_KEY environment variable is required. Please check your Vercel environment variables.');
   }
 
   // Expect hex string, convert to buffer
   if (encryptionKey.length !== 64) {
-    throw new Error('ENCRYPTION_KEY must be 64 hex characters (32 bytes)');
+    console.error(`[Encryption] ENCRYPTION_KEY has invalid length: ${encryptionKey.length} (expected 64)`);
+    throw new Error(`ENCRYPTION_KEY must be 64 hex characters (32 bytes), but got ${encryptionKey.length} characters`);
   }
 
   try {
     return Buffer.from(encryptionKey, 'hex');
   } catch (error) {
+    console.error('[Encryption] Failed to parse ENCRYPTION_KEY as hex:', error);
     throw new Error('ENCRYPTION_KEY must be a valid hex string');
   }
 }

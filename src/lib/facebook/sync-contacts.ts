@@ -4,6 +4,48 @@ import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
 import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
 import { applyStageScoreRanges } from '@/lib/pipelines/stage-analyzer';
 
+/**
+ * Concurrency limiter utility for parallel operations
+ */
+class ConcurrencyLimiter {
+  private queue: Array<{ 
+    fn: () => Promise<unknown>; 
+    resolve: (value: unknown) => void; 
+    reject: (error: unknown) => void 
+  }> = [];
+  private running = 0;
+
+  constructor(private limit: number) {}
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push({ 
+        fn: fn as () => Promise<unknown>, 
+        resolve: resolve as (value: unknown) => void, 
+        reject 
+      });
+      this.process();
+    });
+  }
+
+  private process() {
+    if (this.running >= this.limit || this.queue.length === 0) {
+      return;
+    }
+
+    this.running++;
+    const { fn, resolve, reject } = this.queue.shift()!;
+
+    fn()
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        this.running--;
+        this.process();
+      });
+  }
+}
+
 interface SyncResult {
   success: boolean;
   synced: number;
@@ -67,156 +109,166 @@ export async function syncContacts(facebookPageId: string): Promise<SyncResult> 
     }
   }
 
+  // Initialize concurrency limiters for batch processing (30-50 concurrent jobs)
+  const messageFetchLimiter = new ConcurrencyLimiter(50);
+  const analysisLimiter = new ConcurrencyLimiter(50);
+
   // Sync Messenger contacts
   try {
     console.log('[Sync] Fetching Messenger conversations (with pagination)...');
     const messengerConvos = await client.getMessengerConversations(page.pageId);
     console.log(`[Sync] Fetched ${messengerConvos.length} Messenger conversations`);
 
+    // Step 1: Collect all participants into tasks
+    interface MessengerTask {
+      participantId: string;
+      conversationId: string;
+      updatedTime: string;
+    }
+
+    const messengerTasks: MessengerTask[] = [];
     for (const convo of messengerConvos) {
       for (const participant of convo.participants.data) {
-        if (participant.id === page.pageId) continue; // Skip page itself
+        if (participant.id !== page.pageId) {
+          messengerTasks.push({
+            participantId: participant.id,
+            conversationId: convo.id,
+            updatedTime: convo.updated_time,
+          });
+        }
+      }
+    }
 
+    console.log(`[Sync] Processing ${messengerTasks.length} Messenger contacts continuously...`);
+
+    // Process all contacts continuously - each contact completes independently
+    await Promise.all(
+      messengerTasks.map(async (task) => {
         try {
-          // Fetch ALL messages for comprehensive analysis
-          console.log(`[Sync] Fetching all messages for conversation ${convo.id}...`);
-          const allMessages = await client.getAllMessagesForConversation(convo.id);
-          
-          // Extract name from conversation messages (if available)
-          let firstName = `User ${participant.id.slice(-6)}`; // Fallback name
+          // Step 1: Fetch messages (concurrency limited)
+          const messages = await messageFetchLimiter.execute(async () => {
+            try {
+              return await client.getAllMessagesForConversation(task.conversationId);
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+              throw { message: errorMessage, code: errorCode };
+            }
+          });
+
+          // Step 2: Extract name
+          let firstName = `User ${task.participantId.slice(-6)}`;
           let lastName: string | null = null;
-          
-          if (allMessages && allMessages.length > 0) {
-            // Find a message from this participant
-            const userMessage = allMessages.find(
-              (msg: any) => msg.from?.id === participant.id
+
+          if (messages && messages.length > 0) {
+            const userMessage = messages.find(
+              (msg: { from?: { id?: string; name?: string } }) => msg.from?.id === task.participantId
             );
-            
+
             if (userMessage?.from?.name) {
-              // Split name into first and last
               const nameParts = userMessage.from.name.trim().split(' ');
               firstName = nameParts[0] || firstName;
-              
-              // Get last name (everything after first name)
               if (nameParts.length > 1) {
                 lastName = nameParts.slice(1).join(' ');
               }
             }
           }
-          
-          // Analyze conversation with AI if messages exist
+
+          // Step 3: Analyze with AI (concurrency limited)
           let aiContext: string | null = null;
           let aiAnalysis = null;
-          
-          if (allMessages && allMessages.length > 0) {
-            try {
-              console.log(`[Sync] Processing ${allMessages.length} messages for analysis`);
-              
-              const messagesToAnalyze = allMessages
-                .filter((msg: any) => msg.message)
-                .map((msg: any) => ({
-                  from: msg.from?.name || msg.from?.id || 'Unknown',
-                  text: msg.message,
-                  timestamp: msg.created_time ? new Date(msg.created_time) : undefined
-                }))
-                .reverse(); // Oldest first for chronological analysis
 
-              if (messagesToAnalyze.length > 0) {
-                // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
-                console.log('[Sync] Analyzing full conversation with enhanced fallback...');
-                
-                const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
-                    messagesToAnalyze,
+          if (messages && messages.length > 0) {
+            const messagesToAnalyze = messages
+              .filter((msg: { message?: string }) => msg.message)
+              .map((msg: { from?: { name?: string; id?: string }; message?: string; created_time?: string }) => ({
+                from: msg.from?.name || msg.from?.id || 'Unknown',
+                text: msg.message || '',
+                timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
+              }))
+              .reverse();
+
+            if (messagesToAnalyze.length > 0) {
+              const { analysis, usedFallback } = await analysisLimiter.execute(async () => {
+                return await analyzeWithFallback(
+                  messagesToAnalyze,
                   page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
-                  new Date(convo.updated_time)
-                  );
-                
-                aiAnalysis = analysis;
-                aiContext = analysis.summary;
-                
-                if (usedFallback) {
-                  console.warn(`[Sync] Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
-                } else {
-                  console.log('[Sync] AI Analysis successful:', {
-                    stage: analysis.recommendedStage,
-                    score: analysis.leadScore,
-                    status: analysis.leadStatus,
-                    confidence: analysis.confidence
-                  });
-                }
-                
-                // Rate limit delay (shorter since retries are built-in)
-                await new Promise(resolve => setTimeout(resolve, 500));
+                  new Date(task.updatedTime)
+                );
+              });
+
+              aiAnalysis = analysis;
+              aiContext = analysis.summary;
+
+              if (usedFallback) {
+                console.warn(`[Sync] Used fallback scoring for ${task.participantId} - Score: ${analysis.leadScore}`);
               }
-            } catch (error) {
-              console.error(`[Sync] Failed to analyze conversation for ${participant.id}:`, error);
-              // Add delay even on error to prevent rapid-fire failures
-              await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
-          
+
+          // Step 4: Save to database (immediate - contact appears in pipeline now)
           const savedContact = await prisma.contact.upsert({
             where: {
               messengerPSID_facebookPageId: {
-                messengerPSID: participant.id,
+                messengerPSID: task.participantId,
                 facebookPageId: page.id,
               },
             },
             create: {
-              messengerPSID: participant.id,
+              messengerPSID: task.participantId,
               firstName: firstName,
               lastName: lastName,
               hasMessenger: true,
               organizationId: page.organizationId,
               facebookPageId: page.id,
-              lastInteraction: new Date(convo.updated_time),
+              lastInteraction: new Date(task.updatedTime),
               aiContext: aiContext,
               aiContextUpdatedAt: aiContext ? new Date() : null,
             },
             update: {
               firstName: firstName,
               lastName: lastName,
-              lastInteraction: new Date(convo.updated_time),
+              lastInteraction: new Date(task.updatedTime),
               hasMessenger: true,
               aiContext: aiContext,
               aiContextUpdatedAt: aiContext ? new Date() : null,
             },
           });
-          
-          // Auto-assign to pipeline if enabled
+
+          // Step 5: Assign to pipeline (immediate, non-blocking - contact appears in pipeline now)
           if (aiAnalysis && page.autoPipelineId) {
-            console.log('[Auto-Pipeline] Assigning contact to pipeline...');
-            await autoAssignContactToPipeline({
+            autoAssignContactToPipeline({
               contactId: savedContact.id,
-              aiAnalysis,
+              aiAnalysis: aiAnalysis,
               pipelineId: page.autoPipelineId,
               updateMode: page.autoPipelineMode,
+            }).catch((error) => {
+              console.error(`[Auto-Pipeline] Failed to assign contact ${savedContact.id} to pipeline:`, error);
             });
-            console.log('[Auto-Pipeline] Assignment complete for contact:', savedContact.id);
           }
-          
+
           syncedCount++;
-        } catch (error: any) {
+        } catch (error: unknown) {
           failedCount++;
-          const errorMessage = error.message || 'Unknown error';
-          const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+          const errorMessage = error instanceof Error ? error.message : (typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : 'Unknown error');
+          const errorCode = error instanceof FacebookApiError ? error.code : (typeof error === 'object' && error !== null && 'code' in error ? (typeof error.code === 'number' ? error.code : undefined) : undefined);
           
-          // Check if token is expired
           if (error instanceof FacebookApiError && error.isTokenExpired) {
             tokenExpired = true;
           }
           
-          console.error(`Failed to sync Messenger contact ${participant.id}:`, errorMessage);
           errors.push({
             platform: 'Messenger',
-            id: participant.id,
+            id: task.participantId,
             error: errorMessage,
             code: errorCode,
           });
         }
-      }
-    }
-  } catch (error: any) {
+      })
+    );
+
+    console.log(`[Sync] Messenger contacts complete: ${syncedCount} synced, ${failedCount} failed`);
+  } catch (error: unknown) {
     const errorCode = error instanceof FacebookApiError ? error.code : undefined;
     
     // Check if token is expired
@@ -228,7 +280,7 @@ export async function syncContacts(facebookPageId: string): Promise<SyncResult> 
     errors.push({
       platform: 'Messenger',
       id: 'conversations',
-      error: error.message || 'Failed to fetch conversations',
+      error: error instanceof Error ? error.message : 'Failed to fetch conversations',
       code: errorCode,
     });
   }
@@ -240,170 +292,170 @@ export async function syncContacts(facebookPageId: string): Promise<SyncResult> 
       const igConvos = await client.getInstagramConversations(page.instagramAccountId);
       console.log(`[Sync] Fetched ${igConvos.length} Instagram conversations`);
 
+      // Step 1: Collect all participants into tasks
+      interface InstagramTask {
+        participantId: string;
+        conversationId: string;
+        updatedTime: string;
+      }
+
+      const instagramTasks: InstagramTask[] = [];
       for (const convo of igConvos) {
         for (const participant of convo.participants.data) {
-          if (participant.id === page.instagramAccountId) continue;
+          if (participant.id !== page.instagramAccountId) {
+            instagramTasks.push({
+              participantId: participant.id,
+              conversationId: convo.id,
+              updatedTime: convo.updated_time,
+            });
+          }
+        }
+      }
 
+      console.log(`[Sync] Processing ${instagramTasks.length} Instagram contacts continuously...`);
+
+      // Process all contacts continuously - each contact completes independently
+      await Promise.all(
+        instagramTasks.map(async (task) => {
           try {
-            // Fetch ALL messages for comprehensive analysis
-            console.log(`[Sync] Fetching all IG messages for conversation ${convo.id}...`);
-            const allMessages = await client.getAllMessagesForConversation(convo.id);
-            
-            // Extract name from conversation messages (if available)
-            let firstName = `IG User ${participant.id.slice(-6)}`; // Fallback name
+            // Step 1: Fetch messages (concurrency limited)
+            const messages = await messageFetchLimiter.execute(async () => {
+              try {
+                return await client.getAllMessagesForConversation(task.conversationId);
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+                throw { message: errorMessage, code: errorCode };
+              }
+            });
+
+            // Step 2: Extract name
+            let firstName = `IG User ${task.participantId.slice(-6)}`;
             let lastName: string | null = null;
-            
-            if (allMessages && allMessages.length > 0) {
-              // Find a message from this participant
-              const userMessage = allMessages.find(
-                (msg: any) => msg.from?.id === participant.id
+
+            if (messages && messages.length > 0) {
+              const userMessage = messages.find(
+                (msg: { from?: { id?: string; name?: string; username?: string } }) => msg.from?.id === task.participantId
               );
-              
+
               if (userMessage?.from?.name) {
-                // Split name into first and last
                 const nameParts = userMessage.from.name.trim().split(' ');
                 firstName = nameParts[0] || firstName;
-                
-                // Get last name (everything after first name)
                 if (nameParts.length > 1) {
                   lastName = nameParts.slice(1).join(' ');
                 }
               } else if (userMessage?.from?.username) {
-                // Fallback to username if name not available
                 firstName = userMessage.from.username;
               }
             }
-            
-            // Analyze conversation with AI if messages exist
+
+            // Step 3: Analyze with AI (concurrency limited)
             let aiContext: string | null = null;
             let aiAnalysis = null;
-            
-            if (allMessages && allMessages.length > 0) {
-              try {
-                console.log(`[Sync] Processing ${allMessages.length} IG messages for analysis`);
-                
-                const messagesToAnalyze = allMessages
-                  .filter((msg: any) => msg.message)
-                  .map((msg: any) => ({
-                    from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
-                    text: msg.message,
-                    timestamp: msg.created_time ? new Date(msg.created_time) : undefined
-                  }))
-                  .reverse(); // Oldest first for chronological analysis
 
-                if (messagesToAnalyze.length > 0) {
-                  // Enhanced AI analysis with fallback scoring (PREVENTS 0 lead scores)
-                  console.log('[Sync] Analyzing full IG conversation with enhanced fallback...');
-                  
-                  const { analysis, usedFallback, retryCount } = await analyzeWithFallback(
-                      messagesToAnalyze,
+            if (messages && messages.length > 0) {
+              const messagesToAnalyze = messages
+                .filter((msg: { message?: string }) => msg.message)
+                .map((msg: { from?: { name?: string; username?: string; id?: string }; message?: string; created_time?: string }) => ({
+                  from: msg.from?.name || msg.from?.username || msg.from?.id || 'Unknown',
+                  text: msg.message || '',
+                  timestamp: msg.created_time ? new Date(msg.created_time) : undefined,
+                }))
+                .reverse();
+
+              if (messagesToAnalyze.length > 0) {
+                const { analysis, usedFallback } = await analysisLimiter.execute(async () => {
+                  return await analyzeWithFallback(
+                    messagesToAnalyze,
                     page.autoPipelineId && page.autoPipeline ? page.autoPipeline.stages : undefined,
-                    new Date(convo.updated_time)
-                    );
-                  
-                  aiAnalysis = analysis;
-                  aiContext = analysis.summary;
-                  
-                  if (usedFallback) {
-                    console.warn(`[Sync] IG: Used fallback scoring after ${retryCount} attempts - Score: ${analysis.leadScore}`);
-                  } else {
-                    console.log('[Sync] IG AI Analysis successful:', {
-                      stage: analysis.recommendedStage,
-                      score: analysis.leadScore,
-                      status: analysis.leadStatus,
-                      confidence: analysis.confidence
-                    });
-                  }
-                  
-                  // Rate limit delay (shorter since retries are built-in)
-                  await new Promise(resolve => setTimeout(resolve, 500));
+                    new Date(task.updatedTime)
+                  );
+                });
+
+                aiAnalysis = analysis;
+                aiContext = analysis.summary;
+
+                if (usedFallback) {
+                  console.warn(`[Sync] IG: Used fallback scoring for ${task.participantId} - Score: ${analysis.leadScore}`);
                 }
-              } catch (error) {
-                console.error(`[Sync] Failed to analyze IG conversation for ${participant.id}:`, error);
-                // Add delay even on error to prevent rapid-fire failures
-                await new Promise(resolve => setTimeout(resolve, 1000));
               }
             }
-            
-            // Check if contact exists by Instagram ID or Messenger PSID
+
+            // Step 4: Check if contact exists by Instagram ID or Messenger PSID
             const existingContact = await prisma.contact.findFirst({
               where: {
                 OR: [
-                  { instagramSID: participant.id, facebookPageId: page.id },
-                  {
-                    messengerPSID: participant.id,
-                    facebookPageId: page.id,
-                  },
+                  { instagramSID: task.participantId, facebookPageId: page.id },
+                  { messengerPSID: task.participantId, facebookPageId: page.id },
                 ],
               },
             });
 
+            // Step 5: Save to database (immediate - contact appears in pipeline now)
             let savedContact;
             if (existingContact) {
-              // Update existing contact
               savedContact = await prisma.contact.update({
                 where: { id: existingContact.id },
                 data: {
-                  instagramSID: participant.id,
+                  instagramSID: task.participantId,
                   firstName: firstName,
                   lastName: lastName,
                   hasInstagram: true,
-                  lastInteraction: new Date(convo.updated_time),
+                  lastInteraction: new Date(task.updatedTime),
                   aiContext: aiContext,
                   aiContextUpdatedAt: aiContext ? new Date() : null,
                 },
               });
             } else {
-              // Create new contact with full name from messages
               savedContact = await prisma.contact.create({
                 data: {
-                  instagramSID: participant.id,
+                  instagramSID: task.participantId,
                   firstName: firstName,
                   lastName: lastName,
                   hasInstagram: true,
                   organizationId: page.organizationId,
                   facebookPageId: page.id,
-                  lastInteraction: new Date(convo.updated_time),
+                  lastInteraction: new Date(task.updatedTime),
                   aiContext: aiContext,
                   aiContextUpdatedAt: aiContext ? new Date() : null,
                 },
               });
             }
-            
-            // Auto-assign to pipeline if enabled
+
+            // Step 6: Assign to pipeline (immediate, non-blocking - contact appears in pipeline now)
             if (aiAnalysis && page.autoPipelineId) {
-              console.log('[Auto-Pipeline] Assigning IG contact to pipeline...');
-              await autoAssignContactToPipeline({
+              autoAssignContactToPipeline({
                 contactId: savedContact.id,
-                aiAnalysis,
+                aiAnalysis: aiAnalysis,
                 pipelineId: page.autoPipelineId,
                 updateMode: page.autoPipelineMode,
+              }).catch((error) => {
+                console.error(`[Auto-Pipeline] Failed to assign IG contact ${savedContact.id} to pipeline:`, error);
               });
-              console.log('[Auto-Pipeline] IG assignment complete for contact:', savedContact.id);
             }
-            
+
             syncedCount++;
-          } catch (error: any) {
+          } catch (error: unknown) {
             failedCount++;
-            const errorMessage = error.message || 'Unknown error';
-            const errorCode = error instanceof FacebookApiError ? error.code : undefined;
+            const errorMessage = error instanceof Error ? error.message : (typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : 'Unknown error');
+            const errorCode = error instanceof FacebookApiError ? error.code : (typeof error === 'object' && error !== null && 'code' in error ? (typeof error.code === 'number' ? error.code : undefined) : undefined);
             
-            // Check if token is expired
             if (error instanceof FacebookApiError && error.isTokenExpired) {
               tokenExpired = true;
             }
             
-            console.error(`Failed to sync IG contact ${participant.id}:`, errorMessage);
             errors.push({
               platform: 'Instagram',
-              id: participant.id,
+              id: task.participantId,
               error: errorMessage,
               code: errorCode,
             });
           }
-        }
-      }
-    } catch (error: any) {
+        })
+      );
+
+      console.log(`[Sync] Instagram contacts complete: ${syncedCount} synced, ${failedCount} failed`);
+    } catch (error: unknown) {
       const errorCode = error instanceof FacebookApiError ? error.code : undefined;
       
       // Check if token is expired
@@ -415,7 +467,7 @@ export async function syncContacts(facebookPageId: string): Promise<SyncResult> 
       errors.push({
         platform: 'Instagram',
         id: 'conversations',
-        error: error.message || 'Failed to fetch conversations',
+        error: error instanceof Error ? error.message : 'Failed to fetch conversations',
         code: errorCode,
       });
     }

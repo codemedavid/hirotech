@@ -693,6 +693,7 @@ export default function PipelinePage() {
                   searchQuery={state.stageSearchQueries[stage.id] || ''}
                   currentPage={currentPage}
                   totalPages={totalPages}
+                  pipelineId={params.id as string}
                   onToggleSelection={() => toggleStageSelection(stage.id)}
                   onSearchChange={(query) => handleStageSearch(stage.id, query)}
                   onToggleContactSelection={toggleContactSelection}

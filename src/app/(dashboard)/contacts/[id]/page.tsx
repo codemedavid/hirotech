@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface ContactDetailPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ returnTo?: string; pipelineId?: string }>;
 }
 
 // Separate data fetching functions with caching
@@ -286,20 +287,36 @@ async function ContactActivity({ contactId, organizationId }: { contactId: strin
 }
 
 // Main page component with streaming
-export default async function ContactDetailPage({ params }: ContactDetailPageProps) {
+export default async function ContactDetailPage({ params, searchParams }: ContactDetailPageProps) {
   const session = await auth();
   if (!session?.user) {
     redirect('/login');
   }
 
   const { id } = await params;
+  const { returnTo, pipelineId } = await searchParams;
+
+  // Determine back navigation based on query parameters
+  const getBackUrl = () => {
+    if (returnTo === 'pipeline' && pipelineId) {
+      return `/pipelines/${pipelineId}`;
+    }
+    return '/contacts';
+  };
+
+  const getBackLabel = () => {
+    if (returnTo === 'pipeline' && pipelineId) {
+      return 'Back to Pipeline';
+    }
+    return 'Back to Contacts';
+  };
 
   return (
     <div className="space-y-6">
       <Button variant="ghost" asChild className="mb-4">
-        <Link href="/contacts">
+        <Link href={getBackUrl()}>
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Contacts
+          {getBackLabel()}
         </Link>
       </Button>
 

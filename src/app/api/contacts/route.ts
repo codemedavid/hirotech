@@ -113,9 +113,24 @@ export async function GET(request: NextRequest) {
         skip,
         take: limit,
         orderBy,
-        include: {
-          stage: true,
-          pipeline: true,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePicUrl: true,
+          hasMessenger: true,
+          hasInstagram: true,
+          leadScore: true,
+          tags: true,
+          lastInteraction: true,
+          createdAt: true,
+          stage: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
           facebookPage: {
             select: {
               id: true,

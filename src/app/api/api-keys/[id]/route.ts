@@ -9,7 +9,7 @@ interface RouteParams {
 
 /**
  * PATCH /api/api-keys/[id]
- * Update an API key (name, status) (admin only)
+ * Update an API key (name, status) (developer only)
  */
 export async function PATCH(
   request: NextRequest,
@@ -21,9 +21,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin role
-    if (session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
+      return NextResponse.json(
+        { error: 'Forbidden - Developer access required' },
+        { status: 403 }
+      );
     }
 
     const { id } = await params;
@@ -60,8 +63,8 @@ export async function PATCH(
       id: apiKey.id,
       name: apiKey.name,
       status: apiKey.status,
-      rateLimitedAt: apiKey.rateLimitedAt,
-      updatedAt: apiKey.updatedAt,
+      rateLimitedAt: apiKey.rateLimitedAt ? apiKey.rateLimitedAt.toISOString() : null,
+      updatedAt: apiKey.updatedAt.toISOString(),
     });
   } catch (error) {
     console.error('Update API key error:', error);
@@ -83,7 +86,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/api-keys/[id]
- * Soft delete an API key (mark as DISABLED) (admin only)
+ * Soft delete an API key (mark as DISABLED) (developer only)
  */
 export async function DELETE(
   request: NextRequest,
@@ -95,9 +98,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin role
-    if (session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    // Check developer role only
+    if (session.user.role !== 'DEVELOPER') {
+      return NextResponse.json(
+        { error: 'Forbidden - Developer access required' },
+        { status: 403 }
+      );
     }
 
     const { id } = await params;

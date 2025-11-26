@@ -18,7 +18,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Facebook, Instagram, RefreshCw, Unplug, CheckCircle2, Users, ChevronLeft, ChevronRight, Settings, XCircle } from 'lucide-react';
+import { Facebook, Instagram, RefreshCw, Unplug, CheckCircle2, Users, ChevronLeft, ChevronRight, Settings, XCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
@@ -32,6 +32,7 @@ interface ConnectedPage {
   isActive: boolean;
   lastSyncedAt: string | null;
   autoSync: boolean;
+  autoPipelineId: string | null;
 }
 
 interface ConnectedPagesListProps {
@@ -74,11 +75,24 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
   const [isBulkDisconnecting, setIsBulkDisconnecting] = useState(false);
   const [showBulkDisconnectDialog, setShowBulkDisconnectDialog] = useState(false);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const itemsPerPage = 5;
+  // Format elapsed time
+  const formatElapsedTime = (startedAt: string | null) => {
+    if (!startedAt) return '';
+    const start = new Date(startedAt);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - start.getTime()) / 1000);
+    
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+  };
 
   // Fetch connected pages
   const fetchConnectedPages = useCallback(async () => {
@@ -171,6 +185,14 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
         if (response.ok) {
           const data = await response.json();
           
+          // Debug log to see what we're getting
+          console.log(`[Sync Poll] Page ${pageId}, Job ${job.id}:`, {
+            status: data.status,
+            synced: data.syncedContacts,
+            failed: data.failedContacts,
+            total: data.totalContacts,
+          });
+          
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             // Remove from active jobs
             setActiveSyncJobs(prev => {
@@ -202,12 +224,25 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
               toast.error('Sync failed. Please try again.');
             }
           } else {
-            // Update job status
-            setActiveSyncJobs(prev => ({ ...prev, [pageId]: data }));
+            // Update job status - ensure we're updating with the latest data
+            setActiveSyncJobs(prev => {
+              const current = prev[pageId];
+              // Only update if data actually changed to avoid unnecessary re-renders
+              if (current && 
+                  current.syncedContacts === data.syncedContacts &&
+                  current.failedContacts === data.failedContacts &&
+                  current.totalContacts === data.totalContacts &&
+                  current.status === data.status) {
+                return prev; // No change, return same object
+              }
+              return { ...prev, [pageId]: data };
+            });
           }
+        } else {
+          console.error(`[Sync Poll] Failed to fetch status for job ${job.id}:`, response.status, response.statusText);
         }
       } catch (error) {
-        console.error(`Error polling sync job ${job.id}:`, error);
+        console.error(`[Sync Poll] Error polling sync job ${job.id}:`, error);
       } finally {
         pollingInProgressRef.current.delete(job.id);
       }
@@ -232,13 +267,13 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
       },
     }));
 
-    toast.info(`Starting sync for ${page.pageName}...`, {
-      description: 'Sync will continue in the background',
+    toast.info(`Starting fast sync for ${page.pageName}...`, {
+      description: 'Syncing contacts only (no AI analysis)',
       duration: 2000,
     });
 
     try {
-      const response = await fetch('/api/facebook/sync-background', {
+      const response = await fetch('/api/facebook/fast-sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -275,7 +310,7 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
         },
       }));
 
-      toast.success(`Sync started for ${page.pageName}`, {
+      toast.success(`Fast sync started for ${page.pageName}`, {
         description: 'Syncing contacts in the background',
         duration: 3000,
       });
@@ -289,6 +324,62 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
 
       const errorMessage = error instanceof Error ? error.message : 'Failed to start sync';
       console.error('Error starting sync:', error);
+      toast.error(errorMessage);
+    }
+  };
+
+  // Start pipeline analysis
+  const handleAnalyzePipeline = async (page: ConnectedPage) => {
+    toast.info(`Starting pipeline analysis for ${page.pageName}...`, {
+      description: 'Analyzing contacts without pipelines',
+      duration: 2000,
+    });
+
+    try {
+      const response = await fetch('/api/facebook/analyze-pipeline', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          facebookPageId: page.id,
+        }),
+      });
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to start pipeline analysis');
+      }
+
+      const data = await response.json();
+      
+      // Add to active jobs for tracking
+      setActiveSyncJobs(prev => ({
+        ...prev,
+        [page.id]: {
+          id: data.jobId,
+          status: 'PENDING',
+          syncedContacts: 0,
+          failedContacts: 0,
+          totalContacts: 0,
+          tokenExpired: false,
+          startedAt: null,
+          completedAt: null,
+        },
+      }));
+
+      toast.success(`Pipeline analysis started for ${page.pageName}`, {
+        description: 'Analyzing contacts in the background',
+        duration: 3000,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start pipeline analysis';
+      console.error('Error starting pipeline analysis:', error);
       toast.error(errorMessage);
     }
   };
@@ -470,15 +561,20 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
   // Setup polling for active sync jobs (only when page is visible)
   useEffect(() => {
     if (Object.keys(activeSyncJobs).length > 0 && isPageVisible) {
+      // Poll immediately, then set up interval
+      pollSyncJobs();
       pollingIntervalRef.current = setInterval(pollSyncJobs, 2000); // Poll every 2 seconds
+      console.log('[Sync Poll] Started polling for', Object.keys(activeSyncJobs).length, 'active sync job(s)');
     } else if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
+      console.log('[Sync Poll] Stopped polling');
     }
 
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
       }
     };
   }, [activeSyncJobs, pollSyncJobs, isPageVisible]);
@@ -710,15 +806,29 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
                           Stop Sync
                         </Button>
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSync(page)}
-                          disabled={disconnectingPageId === page.id}
-                        >
-                          <RefreshCw className="mr-2 h-4 w-4" />
-                          Sync
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSync(page)}
+                            disabled={disconnectingPageId === page.id}
+                          >
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Sync
+                          </Button>
+                          {page.autoPipelineId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleAnalyzePipeline(page)}
+                              disabled={disconnectingPageId === page.id}
+                              className="bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/40"
+                            >
+                              <Sparkles className="mr-2 h-4 w-4" />
+                              Analyze
+                            </Button>
+                          )}
+                        </>
                       )}
                       <Button
                         variant="outline"
@@ -740,26 +850,48 @@ export function ConnectedPagesList({ onRefresh, onSyncComplete }: ConnectedPages
                       </Button>
                     </div>
                   </div>
-
                   {isSyncing && syncJob && (
-                    <div className="space-y-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-blue-700 dark:text-blue-300 font-medium flex items-center gap-2">
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    <div className="space-y-3 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                          <span className="text-blue-700 dark:text-blue-300 font-semibold text-sm">
+                            {syncJob.status === 'PENDING' ? 'Starting sync...' : 'Sync in Progress'}
                           </span>
-                          {syncJob.status === 'PENDING' ? 'Starting sync...' : 'Syncing contacts...'}
-                        </span>
-                        {syncJob.totalContacts > 0 && (
-                          <span className="font-medium text-blue-700 dark:text-blue-300">
-                            {syncJob.syncedContacts} / {syncJob.totalContacts}
+                        </div>
+                        {syncJob.startedAt && (
+                          <span className="text-xs text-blue-600 dark:text-blue-400">
+                            {formatElapsedTime(syncJob.startedAt)}
                           </span>
                         )}
                       </div>
-                      {syncJob.totalContacts > 0 && (
-                        <Progress value={syncProgress} className="h-2 bg-blue-100 dark:bg-blue-900" />
-                      )}
+                      
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Processed Contacts</span>
+                          <span className="font-bold text-blue-600 dark:text-blue-400 text-base">
+                            {syncJob.syncedContacts.toLocaleString()} / {syncJob.totalContacts > 0 ? syncJob.totalContacts.toLocaleString() : 'Calculating...'}
+                          </span>
+                        </div>
+                        {syncJob.totalContacts > 0 ? (
+                          <>
+                            <Progress value={syncProgress} className="h-2 bg-blue-100 dark:bg-blue-900" />
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{Math.round(syncProgress)}% complete</span>
+                              {syncJob.failedContacts > 0 && (
+                                <span className="text-destructive">
+                                  {syncJob.failedContacts} failed
+                                </span>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            Initializing sync and counting contacts...
+                          </div>
+                        )}
+                      </div>
+
                       <div className="flex items-start gap-2 text-xs text-blue-600 dark:text-blue-400">
                         <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
                         <p>

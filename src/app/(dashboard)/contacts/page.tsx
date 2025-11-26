@@ -1,7 +1,6 @@
-import { Suspense } from 'react';
+import { Suspense, cache } from 'react';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
-import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { ContactsSearch } from '@/components/contacts/contacts-search';
@@ -11,10 +10,8 @@ import { TagsFilter } from '@/components/contacts/tags-filter';
 import { PlatformFilter } from '@/components/contacts/platform-filter';
 import { ScoreFilter } from '@/components/contacts/score-filter';
 import { StageFilter } from '@/components/contacts/stage-filter';
-import { ContactsTable } from '@/components/contacts/contacts-table';
-import { ContactsPagination } from '@/components/contacts/contacts-pagination';
-import { AnalyzeAllButton } from '@/components/contacts/analyze-all-button';
-import { Users, Plus } from 'lucide-react';
+import { ContactsContentClient } from '@/components/contacts/contacts-content-client';
+import { Plus } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
@@ -35,6 +32,8 @@ interface SearchParams {
 interface ContactsPageProps {
   searchParams: Promise<SearchParams>;
 }
+
+export const revalidate = 60;
 
 async function getContacts(params: SearchParams) {
   const session = await auth();
@@ -158,9 +157,24 @@ async function getContacts(params: SearchParams) {
       skip,
       take: limit,
       orderBy,
-      include: {
-        stage: true,
-        pipeline: true,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        profilePicUrl: true,
+        hasMessenger: true,
+        hasInstagram: true,
+        leadScore: true,
+        tags: true,
+        lastInteraction: true,
+        createdAt: true,
+        stage: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         facebookPage: {
           select: {
             id: true,
@@ -184,16 +198,16 @@ async function getContacts(params: SearchParams) {
   };
 }
 
-async function getTags() {
+const getTags = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
   return prisma.tag.findMany({
     where: { organizationId: session.user.organizationId },
   });
-    }
+});
 
-async function getPipelines() {
+const getPipelines = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
@@ -205,9 +219,9 @@ async function getPipelines() {
       },
     },
   });
-}
+});
 
-async function getFacebookPages() {
+const getFacebookPages = cache(async () => {
   const session = await auth();
   if (!session?.user) return [];
 
@@ -222,14 +236,19 @@ async function getFacebookPages() {
       instagramUsername: true,
     },
   });
-}
+});
 
-async function ContactsContent({ searchParams }: { searchParams: SearchParams }) {
-  const [{ contacts, pagination }, tags, pipelines] = await Promise.all([
-    getContacts(searchParams),
-    getTags(),
-    getPipelines(),
-  ]);
+async function ContactsContent({ 
+  searchParams, 
+  tags, 
+  pipelines 
+}: { 
+  searchParams: SearchParams;
+  tags: Awaited<ReturnType<typeof getTags>>;
+  pipelines: Awaited<ReturnType<typeof getPipelines>>;
+}) {
+  // Initial server-side data fetch for fast first load
+  const initialData = await getContacts(searchParams);
 
   const hasFilters = !!(
     searchParams.search ||
@@ -241,49 +260,26 @@ async function ContactsContent({ searchParams }: { searchParams: SearchParams })
     searchParams.stageId
   );
 
-  if (contacts.length === 0 && !hasFilters) {
-    return (
-      <EmptyState
-        icon={<Users className="h-12 w-12" />}
-        title="No contacts yet"
-        description="Connect your Facebook page and sync contacts to get started"
-        action={{
-          label: 'Go to Integrations',
-          href: '/settings/integrations',
-        }}
-      />
-    );
-  }
-
-  if (contacts.length === 0 && hasFilters) {
-    return (
-      <div className="border rounded-lg p-12 text-center">
-        <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-        <h3 className="text-lg font-semibold mb-2">No contacts found</h3>
-        <p className="text-muted-foreground">
-          Try adjusting your filters to see more results
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <ContactsTable contacts={contacts} tags={tags} pipelines={pipelines} />
-
-      {pagination.pages > 1 && (
-        <ContactsPagination
-          currentPage={pagination.page}
-          totalPages={pagination.pages}
-          totalContacts={pagination.total}
-          limit={pagination.limit}
-        />
-      )}
-    </>
+    <ContactsContentClient
+      initialData={initialData}
+      tags={tags}
+      pipelines={pipelines}
+      hasFilters={hasFilters}
+    />
   );
 }
 
 export default async function ContactsPage({ searchParams }: ContactsPageProps) {
+  // Check if page is disabled globally
+  const { getPageAccessStatus } = await import('@/lib/developer/get-page-access');
+  const pageAccess = await getPageAccessStatus('/contacts');
+  
+  if (pageAccess === false) {
+    const { default: UnderDevelopmentPage } = await import('../under-development/page');
+    return <UnderDevelopmentPage searchParams={Promise.resolve({ page: '/contacts' })} />;
+  }
+
   const params = await searchParams;
   const [facebookPages, tags, pipelines] = await Promise.all([
     getFacebookPages(),
@@ -301,7 +297,6 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
           </p>
         </div>
         <div className="flex gap-2">
-          <AnalyzeAllButton />
           <Button asChild>
             <Link href="/campaigns/new">
               <Plus className="h-4 w-4 mr-2" />
@@ -329,7 +324,7 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
           </div>
         }
       >
-        <ContactsContent searchParams={params} />
+        <ContactsContent searchParams={params} tags={tags} pipelines={pipelines} />
       </Suspense>
     </div>
   );
