@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { generateFollowUpMessage } from '@/lib/ai/google-ai-service';
 import { FacebookClient } from '@/lib/facebook/client';
@@ -232,7 +233,7 @@ export async function POST(request: NextRequest) {
               aiPromptUsed: rule.customPrompt,
               generatedMessage: aiResult.message,
               aiReasoning: aiResult.reasoning,
-              previousMessages: conversationHistory as any,
+              previousMessages: conversationHistory as Prisma.JsonValue,
               status: 'sent',
               facebookMessageId: result.data?.message_id,
               executedAt: new Date(),
