@@ -783,6 +783,20 @@ async function executeBackgroundSync(jobId: string, facebookPageId: string): Pro
         error: errorMessage,
         code: errorCode,
       });
+      
+      // If we failed to fetch conversations and have no contacts, mark as failed
+      if (syncedCount === 0 && errors.length > 0) {
+        await prisma.syncJob.update({
+          where: { id: jobId },
+          data: {
+            status: tokenExpired ? 'FAILED' : 'FAILED',
+            failedContacts: errors.length,
+            syncedContacts: 0,
+            totalContacts: 0,
+          },
+        });
+        return; // Exit early if we can't fetch conversations
+      }
     }
 
     // Sync Instagram contacts (if connected)

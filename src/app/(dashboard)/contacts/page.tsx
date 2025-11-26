@@ -271,6 +271,15 @@ async function ContactsContent({
 }
 
 export default async function ContactsPage({ searchParams }: ContactsPageProps) {
+  // Check if page is disabled globally
+  const { getPageAccessStatus } = await import('@/lib/developer/get-page-access');
+  const pageAccess = await getPageAccessStatus('/contacts');
+  
+  if (pageAccess === false) {
+    const { default: UnderDevelopmentPage } = await import('../under-development/page');
+    return <UnderDevelopmentPage searchParams={Promise.resolve({ page: '/contacts' })} />;
+  }
+
   const params = await searchParams;
   const [facebookPages, tags, pipelines] = await Promise.all([
     getFacebookPages(),

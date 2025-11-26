@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/validate-session';
 
 export async function GET(
   request: NextRequest,
@@ -8,9 +9,11 @@ export async function GET(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const validation = validateSession(session);
+    if ('error' in validation) {
+      return validation.error;
     }
+    const { session: validatedSession } = validation;
 
     const params = await props.params;
     const { jobId } = params;
@@ -34,8 +37,15 @@ export async function GET(
       );
     }
 
+    if (!job.facebookPage) {
+      return NextResponse.json(
+        { error: 'Facebook page not found for this sync job' },
+        { status: 404 }
+      );
+    }
+
     // Verify the job belongs to a page in the user's organization
-    if (job.facebookPage.organizationId !== session.user.organizationId) {
+    if (job.facebookPage.organizationId !== validatedSession.user.organizationId) {
       return NextResponse.json(
         { error: 'Unauthorized access to sync job' },
         { status: 403 }

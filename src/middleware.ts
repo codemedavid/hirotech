@@ -60,6 +60,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Note: Page access check for developers is handled in API routes and page components
+  // Middleware runs in Edge Runtime which doesn't support Prisma
+  // Developer page access is enforced at the page/API route level instead
+
   console.log('[Middleware] ✅ Allowing request');
   return supabaseResponse;
 }
