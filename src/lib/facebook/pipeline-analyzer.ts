@@ -2,7 +2,8 @@ import { prisma } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { FacebookClient, FacebookApiError } from './client';
 import { analyzeWithFallback } from '@/lib/ai/enhanced-analysis';
-import { autoAssignContactToPipeline } from '@/lib/pipelines/auto-assign';
+import { batchAutoAssign } from '@/lib/pipelines/batch-auto-assign';
+import { batchUpdateContacts, BatchContactUpdate } from '@/lib/pipelines/batch-update-contacts';
 import { applyStageScoreRanges } from '@/lib/pipelines/stage-analyzer';
 
 interface PipelineAnalysisResult {
@@ -282,13 +283,28 @@ async function executePipelineAnalysis(jobId: string, facebookPageId: string): P
       }
     }
 
-    // Process all contacts continuously - each contact completes independently
+    // Process all contacts continuously - collect results for batch operations
     const conversationFetchLimiter = new ConcurrencyLimiter(50); // Limit API calls
     const analysisLimiter = new ConcurrencyLimiter(50); // Limit AI analysis
 
     console.log(`[Pipeline Analysis ${jobId}] Processing ${contactsWithoutPipeline.length} contacts continuously...`);
 
-    // Process all contacts in one continuous flow
+    // Collect analysis results for batch processing
+    interface AnalysisResult {
+      contactId: string;
+      analysis: {
+        summary: string;
+        leadScore: number;
+        recommendedStage: string;
+        leadStatus: string;
+        confidence: number;
+        reasoning: string;
+      };
+    }
+
+    const analysisResults: AnalysisResult[] = [];
+
+    // Step 1-4: Process all contacts and collect analysis results
     await Promise.all(
       contactsWithoutPipeline.map(async (contact) => {
         // Check for cancellation periodically
@@ -376,25 +392,21 @@ async function executePipelineAnalysis(jobId: string, facebookPageId: string): P
             );
           });
 
-          // Step 5: Update contact with AI context (immediate - contact appears in pipeline now)
-          await prisma.contact.update({
-            where: { id: contact.id },
-            data: {
-              aiContext: analysis.summary,
-              aiContextUpdatedAt: new Date(),
+          // Collect result for batch processing
+          analysisResults.push({
+            contactId: contact.id,
+            analysis: {
+              summary: analysis.summary,
+              leadScore: analysis.leadScore,
+              recommendedStage: analysis.recommendedStage,
+              leadStatus: analysis.leadStatus,
+              confidence: analysis.confidence,
+              reasoning: analysis.reasoning,
             },
           });
 
-          // Step 6: Assign to pipeline (immediate - contact appears in pipeline now)
-          await autoAssignContactToPipeline({
-            contactId: contact.id,
-            aiAnalysis: analysis,
-            pipelineId: page.autoPipelineId!,
-            updateMode: page.autoPipelineMode,
-          });
-
           // Increment counter (atomic operation in JavaScript)
-          const currentCount = ++analyzedCount;
+          const currentCount = analysisResults.length;
 
           // Update progress periodically (every 10 contacts) - non-blocking fire-and-forget
           if (currentCount % 10 === 0) {
@@ -429,7 +441,7 @@ async function executePipelineAnalysis(jobId: string, facebookPageId: string): P
             prisma.syncJob.update({
               where: { id: jobId },
               data: {
-                syncedContacts: analyzedCount,
+                syncedContacts: analysisResults.length,
                 failedContacts: currentFailedCount,
               },
             }).catch((error) => {
@@ -446,6 +458,84 @@ async function executePipelineAnalysis(jobId: string, facebookPageId: string): P
         }
       })
     );
+
+    // Step 5: Batch update contacts with AI context
+    if (analysisResults.length > 0) {
+      try {
+        const contactUpdates: BatchContactUpdate[] = analysisResults.map((result) => ({
+          contactId: result.contactId,
+          aiContext: result.analysis.summary,
+          aiContextUpdatedAt: new Date(),
+        }));
+
+        const updateResult = await batchUpdateContacts(contactUpdates);
+        analyzedCount += updateResult.updated;
+        failedCount += updateResult.failed;
+        errors.push(...updateResult.errors.map((e) => ({
+          platform: 'Messenger' as const,
+          id: e.contactId,
+          error: e.error,
+          code: undefined,
+        })));
+        console.log(`[Pipeline Analysis ${jobId}] Batch updated ${updateResult.updated} contacts with AI context`);
+      } catch (dbError: unknown) {
+        const dbErrorObj = dbError as { code?: string; message?: string };
+        console.error(`[Pipeline Analysis ${jobId}] Batch update failed:`, dbErrorObj.message);
+        // Mark all as failed if batch update fails
+        analysisResults.forEach((result) => {
+          failedCount++;
+          errors.push({
+            platform: 'Messenger',
+            id: result.contactId,
+            error: `Database update failed: ${dbErrorObj.message || 'Unknown error'}`,
+            code: undefined,
+          });
+        });
+      }
+    }
+
+    // Step 6: Batch assign to pipeline
+    if (analysisResults.length > 0 && page.autoPipelineId) {
+      try {
+        const pipelineAssignments = analysisResults.map((result) => ({
+          contactId: result.contactId,
+          aiAnalysis: {
+            summary: result.analysis.summary,
+            leadScore: result.analysis.leadScore,
+            recommendedStage: result.analysis.recommendedStage,
+            leadStatus: result.analysis.leadStatus as 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL_SENT' | 'NEGOTIATING' | 'WON' | 'LOST' | 'UNRESPONSIVE',
+            confidence: result.analysis.confidence,
+            reasoning: result.analysis.reasoning,
+          },
+          pipelineId: page.autoPipelineId!,
+          updateMode: page.autoPipelineMode,
+        }));
+
+        const assignResult = await batchAutoAssign(pipelineAssignments);
+        analyzedCount = assignResult.assignedCount; // Update count based on actual assignments
+        failedCount += assignResult.failedCount;
+        errors.push(...assignResult.errors.map((e) => ({
+          platform: 'Messenger' as const,
+          id: e.contactId,
+          error: e.error,
+          code: undefined,
+        })));
+        console.log(`[Pipeline Analysis ${jobId}] Batch assigned ${assignResult.assignedCount} contacts to pipeline`);
+      } catch (pipelineError: unknown) {
+        const pipelineErrorObj = pipelineError as { code?: string; message?: string };
+        console.error(`[Pipeline Analysis ${jobId}] Batch pipeline assignment failed:`, pipelineErrorObj.message);
+        // Mark all as failed if batch assignment fails
+        analysisResults.forEach((result) => {
+          failedCount++;
+          errors.push({
+            platform: 'Messenger',
+            id: result.contactId,
+            error: `Pipeline assignment failed: ${pipelineErrorObj.message || 'Unknown error'}`,
+            code: undefined,
+          });
+        });
+      }
+    }
 
     // Update job with final results
     await prisma.syncJob.update({

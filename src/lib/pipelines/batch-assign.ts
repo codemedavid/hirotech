@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { AIContactAnalysis } from '@/lib/ai/google-ai-service';
 import { LeadStatus, Prisma } from '@prisma/client';
 import { findBestMatchingStage, shouldPreventDowngrade } from './stage-analyzer';
+import { pipelineCache } from './pipeline-cache';
 
 export interface BatchAssignOptions {
   contactId: string;
@@ -20,11 +21,10 @@ export interface BatchAssignResult {
 
 /**
  * Batch process pipeline assignments
- * Loads pipeline once, processes all assignments efficiently
+ * Loads pipeline once using cache, processes all assignments efficiently
  */
 export async function batchAssignContactsToPipeline(
-  assignments: BatchAssignOptions[],
-  pipelineCache?: Map<string, { stages: Array<{ id: string; name: string; type: string; order: number; leadScoreMin: number; leadScoreMax: number }> }>
+  assignments: BatchAssignOptions[]
 ): Promise<BatchAssignResult> {
   const result: BatchAssignResult = {
     assignedCount: 0,
@@ -48,46 +48,18 @@ export async function batchAssignContactsToPipeline(
 
   // Process each pipeline group
   for (const [pipelineId, pipelineAssignments] of assignmentsByPipeline) {
-    // Load pipeline with stages (or use cache)
-    let pipeline;
-    if (pipelineCache?.has(pipelineId)) {
-      const cached = pipelineCache.get(pipelineId)!;
-      pipeline = {
-        id: pipelineId,
-        stages: cached.stages,
-      };
-    } else {
-      const loaded = await prisma.pipeline.findUnique({
-        where: { id: pipelineId },
-        include: { stages: { orderBy: { order: 'asc' } } },
+    // Load pipeline with stages using cache
+    const pipeline = await pipelineCache.get(pipelineId);
+
+    if (!pipeline) {
+      result.failedCount += pipelineAssignments.length;
+      pipelineAssignments.forEach((a) => {
+        result.errors.push({
+          contactId: a.contactId,
+          error: `Pipeline ${pipelineId} not found`,
+        });
       });
-
-      if (!loaded) {
-        result.failedCount += pipelineAssignments.length;
-        pipelineAssignments.forEach((a) => {
-          result.errors.push({
-            contactId: a.contactId,
-            error: `Pipeline ${pipelineId} not found`,
-          });
-        });
-        continue;
-      }
-
-      pipeline = loaded;
-
-      // Cache for future use
-      if (pipelineCache) {
-        pipelineCache.set(pipelineId, {
-          stages: loaded.stages.map((s) => ({
-            id: s.id,
-            name: s.name,
-            type: s.type,
-            order: s.order,
-            leadScoreMin: s.leadScoreMin,
-            leadScoreMax: s.leadScoreMax,
-          })),
-        });
-      }
+      continue;
     }
 
     // Load all contacts in one query

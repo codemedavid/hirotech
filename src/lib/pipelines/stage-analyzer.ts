@@ -200,14 +200,9 @@ export async function findBestMatchingStage(
   leadScore: number,
   leadStatus: string
 ): Promise<string | null> {
-  const pipeline = await prisma.pipeline.findUnique({
-    where: { id: pipelineId },
-    include: {
-      stages: {
-        orderBy: { order: 'asc' }
-      }
-    }
-  });
+  // Use pipeline cache to avoid repeated database queries
+  const { pipelineCache } = await import('./pipeline-cache');
+  const pipeline = await pipelineCache.get(pipelineId);
 
   if (!pipeline) {
     return null;
