@@ -32,9 +32,9 @@ export class ParallelAnalyzer {
   private readonly delayBetweenBatches: number;
 
   constructor(
-    maxConcurrent = 20,
+    maxConcurrent = 10, // Reduced from 20 to prevent API overload
     batchSize = 50,
-    delayBetweenBatches = 100
+    delayBetweenBatches = 200 // Increased from 100ms to 200ms
   ) {
     this.maxConcurrent = maxConcurrent;
     this.batchSize = batchSize;
@@ -229,7 +229,7 @@ export async function analyzeParallel(
     leadScoreMin?: number;
     leadScoreMax?: number;
   }>,
-  maxConcurrent = 20,
+  maxConcurrent = 10, // Reduced from 20 to prevent API overload
   maxRetries = 3
 ): Promise<Map<string, ParallelAnalysisResult>> {
   const analyzer = new ParallelAnalyzer(maxConcurrent);

@@ -79,15 +79,28 @@ export async function analyzeWithFallback(
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`[Enhanced Analysis] Attempt ${retryCount + 1} failed:`, lastError.message);
+      const errorMsg = lastError.message;
+      
+      // Check if it's an API error (empty choices, error response, etc.)
+      const isApiError = errorMsg.includes('NVIDIA API') || 
+                        errorMsg.includes('empty choices') ||
+                        errorMsg.includes('No choices');
+      
+      if (isApiError) {
+        console.warn(`[Enhanced Analysis] Attempt ${retryCount + 1} failed with API error:`, errorMsg);
+      } else {
+        console.warn(`[Enhanced Analysis] Attempt ${retryCount + 1} failed:`, errorMsg);
+      }
     }
 
     retryCount++;
     
-    // Exponential backoff: 1s, 2s, 4s
+    // Exponential backoff with jitter: 1s, 2s, 4s + random 0-500ms
     if (retryCount < maxRetries) {
-      const delayMs = Math.pow(2, retryCount) * 1000;
-      console.log(`[Enhanced Analysis] Retrying in ${delayMs}ms...`);
+      const baseDelay = Math.pow(2, retryCount) * 1000;
+      const jitter = Math.random() * 500; // Add random jitter to prevent thundering herd
+      const delayMs = baseDelay + jitter;
+      console.log(`[Enhanced Analysis] Retrying in ${Math.round(delayMs)}ms...`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }

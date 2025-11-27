@@ -125,6 +125,16 @@ Summary:`;
       ],
     });
 
+    // Check for error in response first (including empty error strings)
+    if ('error' in completion) {
+      const errorValue = completion.error;
+      const errorMsg = typeof errorValue === 'string' 
+        ? errorValue || 'Empty error response from API'
+        : (errorValue as { message?: string })?.message || 'Unknown API error';
+      console.error('[NVIDIA] API returned error in response:', errorMsg);
+      throw new Error(`NVIDIA API error: ${errorMsg}`);
+    }
+
     console.log(
       `[NVIDIA] Received response - Choices: ${
         completion.choices?.length || 0
@@ -134,7 +144,7 @@ Summary:`;
     // Check if choices array exists and has items
     if (!completion.choices || completion.choices.length === 0) {
       console.error('[NVIDIA] No choices in response. Full response:', JSON.stringify(completion, null, 2));
-      return null;
+      throw new Error('NVIDIA API returned empty choices array');
     }
 
     const summary = completion.choices[0]?.message?.content;
@@ -169,6 +179,35 @@ Summary:`;
       console.error(`[NVIDIA] HTTP Status: ${errorStatus}`);
     }
     console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
+    
+    // Check if it's an API error (empty choices, error response, etc.)
+    const isApiError = errorMessage.includes('NVIDIA API error') || 
+                      errorMessage.includes('empty choices') ||
+                      errorMessage.includes('Empty error response');
+    const isEmptyError = errorMessage.includes('Empty error response');
+    
+    if (isApiError) {
+      // For API errors, use exponential backoff with jitter
+      const attemptNumber = keyAttempts + 1;
+      if (attemptNumber < MAX_ATTEMPTS) {
+        // Use longer delay for empty errors (likely rate limit)
+        const baseDelay = isEmptyError ? RATE_LIMIT_RETRY_DELAY_MS * 2 : RATE_LIMIT_RETRY_DELAY_MS;
+        const jitter = Math.random() * 1000; // Add jitter to prevent thundering herd
+        const delayMs = baseDelay + jitter;
+        
+        console.warn(
+          `[NVIDIA] API error, retrying (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS}) after ${Math.round(delayMs)}ms...`
+        );
+        await sleep(delayMs);
+        return analyzeConversationWithKey(apiKey, messages, retries, keyAttempts + 1);
+      }
+      
+      // If empty error and max attempts reached, treat as rate limit
+      if (isEmptyError) {
+        console.error('[NVIDIA] Empty error response persists - likely rate limit or quota issue');
+        apiKeyManager.markRateLimited(apiKey);
+      }
+    }
     
     // Check if it's a rate limit error (429)
     if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
@@ -327,10 +366,19 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       ],
     });
 
+    // Check for error in response first
+    if ('error' in completion && completion.error) {
+      const errorMsg = typeof completion.error === 'string' 
+        ? completion.error 
+        : (completion.error as { message?: string })?.message || 'Unknown API error';
+      console.error('[NVIDIA] API returned error in response (follow-up):', errorMsg);
+      throw new Error(`NVIDIA API error: ${errorMsg}`);
+    }
+
     // Check if choices array exists and has items
     if (!completion.choices || completion.choices.length === 0) {
       console.error('[NVIDIA] No choices in response for follow-up message. Full response:', JSON.stringify(completion, null, 2));
-      return null;
+      throw new Error('NVIDIA API returned empty choices array');
     }
 
     const text = completion.choices[0]?.message?.content?.trim();
@@ -555,6 +603,16 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       ],
     });
 
+    // Check for error in response first (including empty error strings)
+    if ('error' in completion) {
+      const errorValue = completion.error;
+      const errorMsg = typeof errorValue === 'string' 
+        ? errorValue || 'Empty error response from API'
+        : (errorValue as { message?: string })?.message || 'Unknown API error';
+      console.error('[NVIDIA] API returned error in response:', errorMsg);
+      throw new Error(`NVIDIA API error: ${errorMsg}`);
+    }
+
     console.log(
       `[NVIDIA] Received response - Choices: ${
         completion.choices?.length || 0
@@ -564,7 +622,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     // Check if choices array exists and has items
     if (!completion.choices || completion.choices.length === 0) {
       console.error('[NVIDIA] No choices in response for stage recommendation. Full response:', JSON.stringify(completion, null, 2));
-      return null;
+      throw new Error('NVIDIA API returned empty choices array');
     }
 
     const text = completion.choices[0]?.message?.content?.trim();
@@ -603,7 +661,44 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     console.error('[NVIDIA] ❌ Stage recommendation failed:', errorMessage);
     console.error('[NVIDIA] Error details:', JSON.stringify(errorDetails, null, 2));
     
-      // Check if it's a rate limit error (429)
+    // Check if it's an API error (empty choices, error response, etc.)
+    const isApiError = errorMessage.includes('NVIDIA API error') || 
+                      errorMessage.includes('empty choices') ||
+                      errorMessage.includes('Empty error response');
+    
+    // Empty error responses often indicate rate limiting or quota issues
+    const isEmptyError = errorMessage.includes('Empty error response');
+    
+    if (isApiError) {
+      // For API errors, use exponential backoff with jitter
+      const attemptNumber = keyAttempts + 1;
+      if (attemptNumber < MAX_ATTEMPTS) {
+        // Use longer delay for empty errors (likely rate limit)
+        const baseDelay = isEmptyError ? RATE_LIMIT_RETRY_DELAY_MS * 2 : RATE_LIMIT_RETRY_DELAY_MS;
+        const jitter = Math.random() * 1000; // Add jitter to prevent thundering herd
+        const delayMs = baseDelay + jitter;
+        
+        console.warn(
+          `[NVIDIA] API error (stage recommendation), retrying (attempt ${attemptNumber + 1}/${MAX_ATTEMPTS}) after ${Math.round(delayMs)}ms...`
+        );
+        await sleep(delayMs);
+        return analyzeConversationWithStageAndKey(
+          apiKey,
+          messages,
+          pipelineStages,
+          retries,
+          keyAttempts + 1
+        );
+      }
+      
+      // If empty error and max attempts reached, treat as rate limit
+      if (isEmptyError) {
+        console.error('[NVIDIA] Empty error response persists - likely rate limit or quota issue');
+        apiKeyManager.markRateLimited(apiKey);
+      }
+    }
+    
+    // Check if it's a rate limit error (429)
     if (errorMessage?.includes('429') || errorMessage?.includes('quota') || errorMessage?.includes('rate limit')) {
       const attemptNumber = keyAttempts + 1;
       if (attemptNumber < MAX_ATTEMPTS) {
@@ -731,6 +826,19 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
           },
         ],
       });
+
+      // Check for error in response first (including empty error strings)
+      if ('error' in completion) {
+        const errorValue = completion.error;
+        const errorMsg = typeof errorValue === 'string' 
+          ? errorValue || 'Empty error response from API'
+          : (errorValue as { message?: string })?.message || 'Unknown API error';
+        console.error('[NVIDIA] API returned error in response (personalized message):', errorMsg);
+        // Fallback to template on error
+        return context.templateMessage
+          .replace(/\{firstName\}/g, context.contactName)
+          .replace(/\{name\}/g, context.contactName);
+      }
 
       // Check if choices array exists and has items
       if (!completion.choices || completion.choices.length === 0) {
