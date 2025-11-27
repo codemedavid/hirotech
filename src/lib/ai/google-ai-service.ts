@@ -35,19 +35,20 @@ function getErrorStatus(error: unknown): number | null {
 
 // Get API key from database first, then fall back to environment variables
 // Environment variable NVIDIA_API_KEY should be set in .env.local
+// OPTIMIZATION: If env var is set, skip database queries entirely to avoid connection pool exhaustion
 async function getApiKey(): Promise<string | null> {
-  // Try database first (preferred method - can be managed through UI)
+  // Check environment variable first (fastest, no DB query)
+  const envKey = process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  if (envKey) {
+    // Skip ApiKeyManager entirely when using env var to avoid DB queries
+    return envKey;
+  }
+  
+  // Only query database if no env var is set
+  // Try database (preferred method - can be managed through UI)
   const dbKey = await apiKeyManager.getNextKey();
   if (dbKey) {
     return dbKey;
-  }
-  
-  // Fall back to environment variables from .env.local
-  // NVIDIA_API_KEY should be set in .env.local file
-  const envKey = process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY;
-  if (envKey) {
-    console.log('[NVIDIA] Using API key from environment variable (NVIDIA_API_KEY from .env.local)');
-    return envKey;
   }
   
   return null;
@@ -142,8 +143,11 @@ Summary:`;
       return null;
     }
     
-    // Record success in database if key came from there
-    await apiKeyManager.recordSuccess(apiKey);
+    // Record success in database if key came from database (not env var)
+    // This is non-blocking and won't affect connection pool
+    if (!process.env.NVIDIA_API_KEY) {
+      apiKeyManager.recordSuccess(apiKey);
+    }
     
     console.log(`[NVIDIA] ✅ Generated summary (${summary.length} chars)`);
     
@@ -179,8 +183,8 @@ Summary:`;
 
       console.error('[NVIDIA] Rate limit persists after multiple attempts');
       
-      // Mark key as rate-limited in database if it came from there
-      await apiKeyManager.markRateLimited(apiKey);
+      // Mark key as rate-limited in database if it came from there (non-blocking)
+      apiKeyManager.markRateLimited(apiKey);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -211,8 +215,8 @@ Summary:`;
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       console.error(`[NVIDIA] Current key prefix: ${apiKey.substring(0, 12)}...`);
       
-      // Mark key as invalid in database if it came from there
-      await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
+      // Mark key as invalid in database if it came from there (non-blocking)
+      apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -406,7 +410,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       // Get API key to mark as invalid
       const apiKey = await getApiKey();
       if (apiKey) {
-        await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
+        apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
       }
     }
     
@@ -578,8 +582,11 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     
     const analysis = JSON.parse(jsonMatch[0]) as AIContactAnalysis;
     
-    // Record success in database if key came from there
-    await apiKeyManager.recordSuccess(apiKey);
+    // Record success in database if key came from database (not env var)
+    // This is non-blocking and won't affect connection pool
+    if (!process.env.NVIDIA_API_KEY) {
+      apiKeyManager.recordSuccess(apiKey);
+    }
     
     console.log(`[NVIDIA] ✅ Stage recommendation: ${analysis.recommendedStage} (confidence: ${analysis.confidence}%, score: ${analysis.leadScore})`);
     
@@ -615,8 +622,8 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 
       console.error('[NVIDIA] Rate limit persists for stage recommendation after multiple attempts');
       
-      // Mark key as rate-limited in database if it came from there
-      await apiKeyManager.markRateLimited(apiKey);
+      // Mark key as rate-limited in database if it came from there (non-blocking)
+      apiKeyManager.markRateLimited(apiKey);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -648,8 +655,8 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       console.error('[NVIDIA] API key should start with "nvapi-" for NVIDIA API');
       console.error(`[NVIDIA] Current key prefix: ${apiKey.substring(0, 12)}...`);
       
-      // Mark key as invalid in database if it came from there
-      await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
+      // Mark key as invalid in database if it came from there (non-blocking)
+      apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${finalStatusCode})`);
       
       // Try again if we have retries left (will get a different key from rotation)
       if (retries > 0) {
@@ -775,7 +782,7 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
           // Get API key to mark as invalid
           const apiKey = await getApiKey();
           if (apiKey) {
-            await apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
+            apiKeyManager.markInvalid(apiKey, `NVIDIA API authentication failed (${statusCode})`);
           }
         } else {
           console.error('[NVIDIA] Personalization failed:', errorMessage);

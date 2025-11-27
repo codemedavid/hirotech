@@ -8,23 +8,6 @@ interface PipelineUpdate {
   pipelineId?: string; // For filtering
 }
 
-interface Pipeline {
-  id: string;
-  [key: string]: unknown;
-}
-
-interface PipelineStage {
-  id: string;
-  pipelineId: string;
-  [key: string]: unknown;
-}
-
-interface PipelineAutomation {
-  id: string;
-  pipelineId: string;
-  [key: string]: unknown;
-}
-
 interface Contact {
   id: string;
   pipelineId?: string;
@@ -46,107 +29,64 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
 
     console.log(`[Supabase Realtime] Subscribing to pipeline ${pipelineId}...`);
 
-    let subscribedChannels = 0;
-    const totalChannels = 4; // Pipeline, PipelineStage, PipelineAutomation, Contact
-    let hasError = false;
-
-    const updateSubscriptionStatus = (status: string) => {
-      if (status === 'SUBSCRIBED') {
-        subscribedChannels++;
-        if (subscribedChannels === totalChannels) {
-          console.log('[Supabase Realtime] Successfully subscribed to all pipeline updates');
-          setIsSubscribed(true);
-          setError(null);
-        }
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        if (!hasError) {
-          hasError = true;
-          console.error(`[Supabase Realtime] Subscription error: ${status}`);
-          setError(new Error(`Failed to subscribe to realtime updates: ${status}`));
-          setIsSubscribed(false);
-        }
-      }
-    };
-
-    // Subscribe to Pipeline changes (watch all, filter by id in handler)
-    const pipelineChannel = supabase
-      .channel(`pipeline-${pipelineId}-pipeline`)
+    // Use a single channel for all table subscriptions
+    const channel = supabase
+      .channel(`pipeline-${pipelineId}`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
-          table: 'Pipeline'
+          table: 'Pipeline',
+          filter: `id=eq.${pipelineId}`
         },
         (payload) => {
-          const changedPipelineId = (payload.new as { id?: string })?.id || (payload.old as { id?: string })?.id;
-          if (changedPipelineId === pipelineId) {
-            console.log('[Supabase Realtime] Pipeline changed:', payload.eventType);
-            setUpdateSignal({
-              type: 'pipeline_changed',
-              timestamp: Date.now(),
-              pipelineId: changedPipelineId
-            });
-          }
+          console.log('[Supabase Realtime] Pipeline changed:', payload.eventType);
+          setUpdateSignal({
+            type: 'pipeline_changed',
+            timestamp: Date.now(),
+            pipelineId
+          });
         }
       )
-      .subscribe(updateSubscriptionStatus);
-
-    // Subscribe to PipelineStage changes (watch all, filter by pipelineId in handler)
-    const stageChannel = supabase
-      .channel(`pipeline-${pipelineId}-stages`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
-          table: 'PipelineStage'
+          table: 'PipelineStage',
+          filter: `pipelineId=eq.${pipelineId}`
         },
         (payload) => {
-          const changedPipelineId = (payload.new as { pipelineId?: string })?.pipelineId || (payload.old as { pipelineId?: string })?.pipelineId;
-          if (changedPipelineId === pipelineId) {
-            console.log('[Supabase Realtime] Stage changed:', payload.eventType);
-            setUpdateSignal({
-              type: 'stage_changed',
-              timestamp: Date.now(),
-              pipelineId: changedPipelineId
-            });
-          }
+          console.log('[Supabase Realtime] Stage changed:', payload.eventType);
+          setUpdateSignal({
+            type: 'stage_changed',
+            timestamp: Date.now(),
+            pipelineId
+          });
         }
       )
-      .subscribe(updateSubscriptionStatus);
-
-    // Subscribe to PipelineAutomation changes (watch all, filter by pipelineId in handler)
-    const automationChannel = supabase
-      .channel(`pipeline-${pipelineId}-automations`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
-          table: 'PipelineAutomation'
+          table: 'PipelineAutomation',
+          filter: `pipelineId=eq.${pipelineId}`
         },
         (payload) => {
-          const changedPipelineId = (payload.new as { pipelineId?: string })?.pipelineId || (payload.old as { pipelineId?: string })?.pipelineId;
-          if (changedPipelineId === pipelineId) {
-            console.log('[Supabase Realtime] Automation changed:', payload.eventType);
-            setUpdateSignal({
-              type: 'automation_changed',
-              timestamp: Date.now(),
-              pipelineId: changedPipelineId
-            });
-          }
+          console.log('[Supabase Realtime] Automation changed:', payload.eventType);
+          setUpdateSignal({
+            type: 'automation_changed',
+            timestamp: Date.now(),
+            pipelineId
+          });
         }
       )
-      .subscribe(updateSubscriptionStatus);
-
-    // Subscribe to Contact changes for this pipeline (filtered at database level)
-    const contactChannel = supabase
-      .channel(`pipeline-${pipelineId}-contacts`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
           table: 'Contact',
           filter: `pipelineId=eq.${pipelineId}`
@@ -160,19 +100,27 @@ export function useSupabasePipelineRealtime(pipelineId: string) {
           });
         }
       )
-      .subscribe(updateSubscriptionStatus);
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Supabase Realtime] Successfully subscribed to pipeline updates');
+          setIsSubscribed(true);
+          setError(null);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.error(`[Supabase Realtime] Subscription error: ${status}`);
+          setError(new Error(`Failed to subscribe to realtime updates: ${status}`));
+          setIsSubscribed(false);
+        } else {
+          console.log(`[Supabase Realtime] Subscription status: ${status}`);
+        }
+      });
 
     // Cleanup on unmount
     return () => {
       console.log('[Supabase Realtime] Unsubscribing from pipeline updates...');
-      supabase.removeChannel(pipelineChannel);
-      supabase.removeChannel(stageChannel);
-      supabase.removeChannel(automationChannel);
-      supabase.removeChannel(contactChannel);
+      supabase.removeChannel(channel);
       setIsSubscribed(false);
-      subscribedChannels = 0;
     };
-  }, [pipelineId]); // Only re-subscribe if pipelineId changes (stable!)
+  }, [pipelineId]);
 
   return { 
     updateSignal, 

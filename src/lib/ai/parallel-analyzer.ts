@@ -1,5 +1,4 @@
 import { analyzeWithFallback, EnhancedAnalysisResult } from './enhanced-analysis';
-import { AIContactAnalysis } from './google-ai-service';
 
 export interface MessageSet {
   messages: Array<{

@@ -1,11 +1,33 @@
 import { PrismaClient } from '@prisma/client';
 
 const prismaClientSingleton = () => {
+  // Configure connection pool to handle high concurrency
+  // Add connection_limit and pool_timeout to DATABASE_URL if not already present
+  let databaseUrl = process.env.DATABASE_URL || '';
+  
+  // Parse URL to add/update connection pool parameters
+  try {
+    const url = new URL(databaseUrl);
+    
+    // Set connection pool parameters
+    // connection_limit: Maximum number of connections in the pool (increase from default 5)
+    // pool_timeout: Maximum time to wait for a connection (increase from default 10s)
+    url.searchParams.set('connection_limit', '10');
+    url.searchParams.set('pool_timeout', '20');
+    url.searchParams.set('connect_timeout', '10');
+    
+    databaseUrl = url.toString();
+  } catch (error) {
+    // If URL parsing fails, append parameters directly
+    const separator = databaseUrl.includes('?') ? '&' : '?';
+    databaseUrl = `${databaseUrl}${separator}connection_limit=10&pool_timeout=20&connect_timeout=10`;
+  }
+
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
     datasources: {
       db: {
-        url: process.env.DATABASE_URL,
+        url: databaseUrl,
       },
     },
   });

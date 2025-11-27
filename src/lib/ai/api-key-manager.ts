@@ -10,18 +10,26 @@ class ApiKeyManager {
   private currentIndex: number = 0;
   private activeKeyIds: string[] = [];
   private lastRefresh: number = 0;
-  private readonly CACHE_TTL = 60000; // Cache for 60 seconds
+  private readonly CACHE_TTL = 300000; // Cache for 5 minutes (increased from 60s)
+  private refreshDebounceTimer: NodeJS.Timeout | null = null;
+  private readonly REFRESH_DEBOUNCE_MS = 5000; // Debounce refresh calls by 5 seconds
 
   /**
    * Get the next available API key in round-robin fashion
    * Automatically skips rate-limited and disabled keys
+   * SKIPS DATABASE QUERIES if NVIDIA_API_KEY env var is set
    */
   async getNextKey(): Promise<string | null> {
+    // OPTIMIZATION: If env var is set, skip all database operations
+    if (process.env.NVIDIA_API_KEY) {
+      return process.env.NVIDIA_API_KEY;
+    }
+
     try {
       // Refresh cache if stale
       const now = Date.now();
       if (now - this.lastRefresh > this.CACHE_TTL || this.activeKeyIds.length === 0) {
-        await this.refreshActiveKeys();
+        await this.refreshActiveKeysDebounced();
       }
 
       if (this.activeKeyIds.length === 0) {
@@ -40,7 +48,7 @@ class ApiKeyManager {
 
       if (!apiKeyRecord || apiKeyRecord.status !== ApiKeyStatus.ACTIVE) {
         // Key was disabled or rate-limited since cache refresh, refresh and retry
-        await this.refreshActiveKeys();
+        await this.refreshActiveKeysDebounced();
         if (this.activeKeyIds.length === 0) {
           return null;
         }
@@ -48,8 +56,8 @@ class ApiKeyManager {
         return this.getNextKey();
       }
 
-      // Update last used timestamp
-      await prisma.apiKey.update({
+      // Update last used timestamp (fire-and-forget, non-blocking)
+      prisma.apiKey.update({
         where: { id: keyId },
         data: { lastUsedAt: new Date() },
       }).catch((err: unknown) => {
@@ -70,9 +78,44 @@ class ApiKeyManager {
   }
 
   /**
+   * Refresh the cache of active key IDs with debouncing
+   * Prevents rapid successive refreshes from exhausting connection pool
+   */
+  private async refreshActiveKeysDebounced(): Promise<void> {
+    // If env var is set, skip database refresh
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
+    // Debounce: if a refresh is already scheduled, wait for it
+    if (this.refreshDebounceTimer) {
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (!this.refreshDebounceTimer) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+      });
+    }
+
+    // Schedule refresh with debounce
+    this.refreshDebounceTimer = setTimeout(() => {
+      this.refreshDebounceTimer = null;
+    }, this.REFRESH_DEBOUNCE_MS);
+
+    return this.refreshActiveKeys();
+  }
+
+  /**
    * Refresh the cache of active key IDs
    */
   private async refreshActiveKeys(): Promise<void> {
+    // Skip if env var is set
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
     try {
       const activeKeys = await prisma.apiKey.findMany({
         where: {
@@ -103,8 +146,24 @@ class ApiKeyManager {
   /**
    * Mark a key as rate-limited
    * Sets status to RATE_LIMITED and records the timestamp
+   * NON-BLOCKING: Fire-and-forget to avoid connection pool exhaustion
    */
   async markRateLimited(keyIdOrDecryptedKey: string): Promise<void> {
+    // Skip if using env var
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
+    // Fire-and-forget: don't block on this operation
+    this.markRateLimitedAsync(keyIdOrDecryptedKey).catch((error) => {
+      console.error('[ApiKeyManager] Error marking key as rate-limited (async):', error);
+    });
+  }
+
+  /**
+   * Internal async method for marking rate-limited
+   */
+  private async markRateLimitedAsync(keyIdOrDecryptedKey: string): Promise<void> {
     try {
       // Find key by ID or by matching decrypted key
       const apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
@@ -125,8 +184,8 @@ class ApiKeyManager {
         },
       });
 
-      // Invalidate cache to exclude this key
-      await this.refreshActiveKeys();
+      // Invalidate cache to exclude this key (debounced)
+      await this.refreshActiveKeysDebounced();
       
       console.log(`[ApiKeyManager] Marked key ${apiKey.id} as rate-limited`);
     } catch (error) {
@@ -136,8 +195,24 @@ class ApiKeyManager {
 
   /**
    * Record a successful API call
+   * NON-BLOCKING: Fire-and-forget to avoid connection pool exhaustion
    */
   async recordSuccess(keyIdOrDecryptedKey: string): Promise<void> {
+    // Skip if using env var (no database tracking needed)
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
+    // Fire-and-forget: don't block on this operation
+    this.recordSuccessAsync(keyIdOrDecryptedKey).catch(() => {
+      // Silently fail - this is non-critical
+    });
+  }
+
+  /**
+   * Internal async method for recording success
+   */
+  private async recordSuccessAsync(keyIdOrDecryptedKey: string): Promise<void> {
     try {
       const apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
 
@@ -162,8 +237,24 @@ class ApiKeyManager {
 
   /**
    * Record a failed API call (non-rate-limit)
+   * NON-BLOCKING: Fire-and-forget to avoid connection pool exhaustion
    */
   async recordFailure(keyIdOrDecryptedKey: string): Promise<void> {
+    // Skip if using env var
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
+    // Fire-and-forget: don't block on this operation
+    this.recordFailureAsync(keyIdOrDecryptedKey).catch(() => {
+      // Silently fail - this is non-critical
+    });
+  }
+
+  /**
+   * Internal async method for recording failure
+   */
+  private async recordFailureAsync(keyIdOrDecryptedKey: string): Promise<void> {
     try {
       const apiKey = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
 
@@ -197,8 +288,24 @@ class ApiKeyManager {
   /**
    * Mark a key as invalid (401/authentication errors)
    * Disables the key and removes it from active rotation
+   * NON-BLOCKING: Fire-and-forget to avoid connection pool exhaustion
    */
   async markInvalid(keyIdOrDecryptedKey: string, reason: string = 'Authentication failed'): Promise<void> {
+    // Skip if using env var
+    if (process.env.NVIDIA_API_KEY) {
+      return;
+    }
+
+    // Fire-and-forget: don't block on this operation
+    this.markInvalidAsync(keyIdOrDecryptedKey, reason).catch((error) => {
+      console.error('[ApiKeyManager] Error marking key as invalid (async):', error);
+    });
+  }
+
+  /**
+   * Internal async method for marking invalid
+   */
+  private async markInvalidAsync(keyIdOrDecryptedKey: string, reason: string): Promise<void> {
     try {
       const apiKeyRecord = await this.findKeyByIdOrValue(keyIdOrDecryptedKey);
 
@@ -223,8 +330,8 @@ class ApiKeyManager {
         },
       });
 
-      // Invalidate cache to exclude this key
-      await this.refreshActiveKeys();
+      // Invalidate cache to exclude this key (debounced)
+      await this.refreshActiveKeysDebounced();
       
       const keyName = fullKey?.name || 'unnamed';
       console.error(`[ApiKeyManager] ⚠️ Marked key ${apiKeyRecord.id} (${keyName}) as DISABLED - ${reason}`);
@@ -277,6 +384,11 @@ class ApiKeyManager {
    * Get count of available keys
    */
   async getKeyCount(): Promise<number> {
+    // If env var is set, return 1 (we have one key from env)
+    if (process.env.NVIDIA_API_KEY) {
+      return 1;
+    }
+
     try {
       const count = await prisma.apiKey.count({
         where: {
