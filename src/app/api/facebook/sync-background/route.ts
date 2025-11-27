@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/db';
-import { startBackgroundSync } from '@/lib/facebook/background-sync';
+import { startSync } from '@/lib/facebook/sync-adapter';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { facebookPageId } = body;
+    const { facebookPageId, useFastSync } = body;
 
     if (!facebookPageId) {
       return NextResponse.json(
@@ -35,7 +35,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await startBackgroundSync(facebookPageId);
+    // Use sync adapter which routes to appropriate system
+    const result = await startSync({
+      facebookPageId,
+      useFastSync: useFastSync ?? false, // Default to old system for safety
+    });
 
     return NextResponse.json(result);
   } catch (error) {

@@ -15,7 +15,7 @@ interface PipelineStage {
   leadScoreMax?: number;
 }
 
-interface EnhancedAnalysisResult {
+export interface EnhancedAnalysisResult {
   analysis: AIContactAnalysis;
   usedFallback: boolean;
   retryCount: number;

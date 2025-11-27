@@ -112,6 +112,7 @@ model Contact {
   groups                ContactGroup[]          @relation("ContactToContactGroup")
 
   @@unique([messengerPSID, facebookPageId])
+  @@unique([instagramSID, facebookPageId])
   @@index([instagramSID])
   @@index([pipelineId, stageId])
   @@index([leadStatus])

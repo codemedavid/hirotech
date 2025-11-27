@@ -16,7 +16,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Helper type for errors that might have status codes
+interface ErrorWithStatus {
+  status?: number;
+  response?: {
+    status?: number;
+  };
+}
+
+// Helper function to safely extract status code from unknown error
+function getErrorStatus(error: unknown): number | null {
+  if (typeof error === 'object' && error !== null) {
+    const errorWithStatus = error as ErrorWithStatus;
+    return errorWithStatus.status ?? errorWithStatus.response?.status ?? null;
+  }
+  return null;
+}
+
 // Get API key from database first, then fall back to environment variables
+// Environment variable NVIDIA_API_KEY should be set in .env.local
 async function getApiKey(): Promise<string | null> {
   // Try database first (preferred method - can be managed through UI)
   const dbKey = await apiKeyManager.getNextKey();
@@ -24,8 +42,15 @@ async function getApiKey(): Promise<string | null> {
     return dbKey;
   }
   
-  // Fall back to environment variables if no database keys available
-  return process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY || null;
+  // Fall back to environment variables from .env.local
+  // NVIDIA_API_KEY should be set in .env.local file
+  const envKey = process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  if (envKey) {
+    console.log('[NVIDIA] Using API key from environment variable (NVIDIA_API_KEY from .env.local)');
+    return envKey;
+  }
+  
+  return null;
 }
 
 // Helper function to create OpenAI client configured for NVIDIA API
@@ -49,7 +74,7 @@ export async function analyzeConversation(
 ): Promise<string | null> {
   const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY in .env.local file.');
     return null;
   }
 
@@ -126,7 +151,7 @@ Summary:`;
   } catch (error: unknown) {
     // Enhanced error logging
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStatus = (error as any)?.status || (error as any)?.response?.status || 
+    const errorStatus = getErrorStatus(error) || 
                        (errorMessage?.match(/(\d{3})\s+status/i)?.[1]);
     const errorDetails = error instanceof Error ? {
       name: error.name,
@@ -168,8 +193,7 @@ Summary:`;
     
     // Check for 401/403 authentication/authorization errors
     const statusCode = errorStatus || 
-                      ((error as any)?.status) || 
-                      ((error as any)?.response?.status) ||
+                      getErrorStatus(error) ||
                       (errorMessage?.includes('403') ? 403 : errorMessage?.includes('401') ? 401 : null);
     
     const isAuthError = statusCode === 401 || 
@@ -210,7 +234,7 @@ export async function getAvailableKeyCount(): Promise<number> {
     return dbCount;
   }
   
-  // Fall back to environment variable check
+  // Fall back to environment variable check (.env.local)
   return (process.env.NVIDIA_API_KEY || process.env.GOOGLE_AI_API_KEY) ? 1 : 0;
 }
 
@@ -229,7 +253,7 @@ export async function generateFollowUpMessage(
 ): Promise<AIFollowUpResult | null> {
   const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY in .env.local file.');
     return null;
   }
 
@@ -367,15 +391,16 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     }
     
     // Check for 401/403 authentication/authorization errors
+    const errorStatusValue = getErrorStatus(error);
     const isAuthError = errorMessage?.includes('401') || 
                        errorMessage?.includes('403') ||
                        errorMessage?.includes('Forbidden') ||
                        errorMessage?.includes('No auth') || 
                        errorMessage?.includes('Unauthorized') || 
-                       (error instanceof Error && 'status' in error && (error.status === 401 || error.status === 403));
+                       (errorStatusValue === 401 || errorStatusValue === 403);
     
     if (isAuthError) {
-      const statusCode = (error as any)?.status || (errorMessage?.includes('403') ? 403 : 401);
+      const statusCode = errorStatusValue || (errorMessage?.includes('403') ? 403 : 401);
       console.error(`[NVIDIA] 🔐 Authentication failed (${statusCode}) - Invalid or expired API key`);
       
       // Get API key to mark as invalid
@@ -413,7 +438,7 @@ export async function analyzeConversationWithStageRecommendation(
 ): Promise<AIContactAnalysis | null> {
   const apiKey = await getApiKey();
   if (!apiKey) {
-    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
+    console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY in .env.local file.');
     return null;
   }
 
@@ -603,7 +628,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     }
     
     // Check for 401/403 authentication/authorization errors
-    const errorStatus = (error as any)?.status || (error as any)?.response?.status || 
+    const errorStatus = getErrorStatus(error) || 
                        (errorMessage?.match(/(\d{3})\s+status/i)?.[1]);
     const statusCode = errorStatus || 
                       (errorMessage?.includes('403') ? 403 : errorMessage?.includes('401') ? 401 : null);
@@ -654,7 +679,7 @@ export class GoogleAIService {
   ): Promise<string> {
     const apiKey = await getApiKey();
     if (!apiKey) {
-      console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY environment variable.');
+      console.error('[NVIDIA] No API key available. Add one through Settings → API Keys or set NVIDIA_API_KEY in .env.local file.');
       // Fallback to template
       return context.templateMessage
         .replace(/\{firstName\}/g, context.contactName)
@@ -744,7 +769,7 @@ Respond with ONLY the personalized message text (no JSON, no markdown, no explan
                            (error instanceof Error && 'status' in error && (error.status === 401 || error.status === 403));
         
         if (isAuthError) {
-          const statusCode = (error as any)?.status || (errorMessage?.includes('403') ? 403 : 401);
+          const statusCode = getErrorStatus(error) || (errorMessage?.includes('403') ? 403 : 401);
           console.error(`[NVIDIA] 🔐 Authentication failed (${statusCode}) - Invalid or expired API key`);
           
           // Get API key to mark as invalid
